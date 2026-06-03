@@ -151,7 +151,8 @@ export const apiClient = {
     api<PresignResponse>("/presign", { method: "POST", body: payload }),
 
   process: (payload: { documentId: string; key: string; fileName: string }) =>
-    api<ProcessResponse>("/process", { method: "POST", body: payload }),
+    api<ProcessResponse>("/process", { method: "POST", body: payload, timeoutMs: 120_000 }),
+
 
   getTrend: (biomarker: string) =>
     api<TrendResponse>(`/trend?biomarker=${encodeURIComponent(biomarker)}`),
