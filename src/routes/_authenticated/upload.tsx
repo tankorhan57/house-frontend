@@ -7,6 +7,7 @@ import { apiClient, uploadToPresignedUrl, ApiError } from "@/lib/api";
 import { Disclaimer } from "@/components/disclaimer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/upload")({
@@ -47,6 +48,7 @@ function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
+  const [progress, setProgress] = useState(0);
 
   const busy = stage === "uploading" || stage === "processing" || stage === "done";
 
@@ -73,6 +75,7 @@ function UploadPage() {
   const handleUpload = async () => {
     if (!file) return;
     try {
+      setProgress(0);
       setStage("uploading");
       const presign = await apiClient.presign({
         fileName: file.name,
@@ -80,7 +83,7 @@ function UploadPage() {
         fileSize: file.size,
       });
 
-      await uploadToPresignedUrl(presign.uploadUrl, file);
+      await uploadToPresignedUrl(presign.uploadUrl, file, setProgress);
 
       setStage("processing");
       await apiClient.process({
@@ -95,6 +98,7 @@ function UploadPage() {
       navigate({ to: "/document/$id", params: { id: presign.documentId } });
     } catch (err) {
       setStage("idle");
+      setProgress(0);
       const message =
         err instanceof ApiError
           ? err.message
@@ -120,6 +124,12 @@ function UploadPage() {
             <Loader2 className="h-10 w-10 animate-spin text-accent" />
           )}
           <p className="text-sm font-medium text-foreground">{STAGE_LABEL[stage]}</p>
+          {stage === "uploading" && (
+            <div className="w-full max-w-xs space-y-1">
+              <Progress value={progress} />
+              <p className="text-xs text-muted-foreground">{progress}%</p>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
             This can take a moment. Please keep this page open.
           </p>
