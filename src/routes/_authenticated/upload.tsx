@@ -7,6 +7,7 @@ import { apiClient, uploadToPresignedUrl, ApiError } from "@/lib/api";
 import { Disclaimer } from "@/components/disclaimer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/upload")({
