@@ -74,6 +74,7 @@ function UploadPage() {
   const handleUpload = async () => {
     if (!file) return;
     try {
+      setProgress(0);
       setStage("uploading");
       const presign = await apiClient.presign({
         fileName: file.name,
@@ -81,7 +82,7 @@ function UploadPage() {
         fileSize: file.size,
       });
 
-      await uploadToPresignedUrl(presign.uploadUrl, file);
+      await uploadToPresignedUrl(presign.uploadUrl, file, setProgress);
 
       setStage("processing");
       await apiClient.process({
@@ -96,6 +97,7 @@ function UploadPage() {
       navigate({ to: "/document/$id", params: { id: presign.documentId } });
     } catch (err) {
       setStage("idle");
+      setProgress(0);
       const message =
         err instanceof ApiError
           ? err.message
