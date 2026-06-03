@@ -123,6 +123,12 @@ function UploadPage() {
             <Loader2 className="h-10 w-10 animate-spin text-accent" />
           )}
           <p className="text-sm font-medium text-foreground">{STAGE_LABEL[stage]}</p>
+          {stage === "uploading" && (
+            <div className="w-full max-w-xs space-y-1">
+              <Progress value={progress} />
+              <p className="text-xs text-muted-foreground">{progress}%</p>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
             This can take a moment. Please keep this page open.
           </p>
