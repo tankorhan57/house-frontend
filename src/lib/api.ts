@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
+const API_BASE_URL = "https://qz8jc4apa3.execute-api.us-east-1.amazonaws.com/prod";
 
 export class ApiError extends Error {
   status: number;
