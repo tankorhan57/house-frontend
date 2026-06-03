@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /auth
+Disallow: /document
+Disallow: /upload
+Disallow: /trends
+Disallow: /settings
