@@ -47,6 +47,7 @@ function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
+  const [progress, setProgress] = useState(0);
 
   const busy = stage === "uploading" || stage === "processing" || stage === "done";
 
