@@ -160,22 +160,63 @@ export const apiClient = {
   deleteAccount: () => api<void>("/account", { method: "DELETE" }),
 };
 
-/** Upload a file directly to a pre-signed S3 URL (no auth header). */
-export async function uploadToPresignedUrl(
+/**
+ * Upload a file directly to a pre-signed S3 URL (no auth header).
+ * Uses XMLHttpRequest for real progress, an explicit timeout, and clearer
+ * error messages — a hang here almost always means the S3 bucket is missing
+ * a CORS rule that allows browser PUTs from this app's origin.
+ */
+export function uploadToPresignedUrl(
   uploadUrl: string,
   file: File,
+  onProgress?: (percent: number) => void,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type },
-      body: file,
-    });
-  } catch {
-    throw new ApiError("Failed to upload the file. Please try again.", 0);
-  }
-  if (!res.ok) {
-    throw new ApiError("The file could not be uploaded. Please try again.", res.status);
-  }
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl, true);
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.timeout = 60_000;
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      console.info(`[upload] S3 PUT responded ${xhr.status}`);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else if (xhr.status === 403) {
+        reject(
+          new ApiError(
+            "Storage rejected the upload (403). The S3 bucket's permissions or CORS policy need to allow uploads from this site.",
+            403,
+          ),
+        );
+      } else {
+        reject(new ApiError(`The file could not be uploaded (${xhr.status}).`, xhr.status));
+      }
+    };
+
+    xhr.ontimeout = () => {
+      console.error("[upload] S3 PUT timed out after 60s");
+      reject(new ApiError("The upload timed out. Please check your connection and try again.", 0));
+    };
+
+    xhr.onerror = () => {
+      // A status of 0 with no response is the classic signature of a blocked
+      // CORS preflight — the browser never lets the response through.
+      console.error("[upload] S3 PUT failed (likely CORS/network)", xhr.status);
+      reject(
+        new ApiError(
+          "Couldn't reach storage. This is usually a CORS configuration issue on the S3 bucket — it must allow PUT requests from this site's origin.",
+          0,
+        ),
+      );
+    };
+
+    xhr.send(file);
+  });
 }
+
