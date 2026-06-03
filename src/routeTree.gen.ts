@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
+import { Route as AuthenticatedTrendsRouteImport } from './routes/_authenticated/trends'
 import { Route as AuthenticatedDocumentIdRouteImport } from './routes/_authenticated/document.$id'
 
 const AuthRoute = AuthRouteImport.update({
@@ -34,6 +35,11 @@ const AuthenticatedUploadRoute = AuthenticatedUploadRouteImport.update({
   path: '/upload',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTrendsRoute = AuthenticatedTrendsRouteImport.update({
+  id: '/trends',
+  path: '/trends',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDocumentIdRoute = AuthenticatedDocumentIdRouteImport.update({
   id: '/document/$id',
   path: '/document/$id',
@@ -43,11 +49,13 @@ const AuthenticatedDocumentIdRoute = AuthenticatedDocumentIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
+  '/trends': typeof AuthenticatedTrendsRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/document/$id': typeof AuthenticatedDocumentIdRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
+  '/trends': typeof AuthenticatedTrendsRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/': typeof AuthenticatedIndexRoute
   '/document/$id': typeof AuthenticatedDocumentIdRoute
@@ -56,19 +64,21 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/trends': typeof AuthenticatedTrendsRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/document/$id': typeof AuthenticatedDocumentIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/upload' | '/document/$id'
+  fullPaths: '/' | '/auth' | '/trends' | '/upload' | '/document/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/auth' | '/upload' | '/' | '/document/$id'
+  to: '/auth' | '/trends' | '/upload' | '/' | '/document/$id'
   id:
     | '__root__'
     | '/_authenticated'
     | '/auth'
+    | '/_authenticated/trends'
     | '/_authenticated/upload'
     | '/_authenticated/'
     | '/_authenticated/document/$id'
@@ -109,6 +119,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUploadRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/trends': {
+      id: '/_authenticated/trends'
+      path: '/trends'
+      fullPath: '/trends'
+      preLoaderRoute: typeof AuthenticatedTrendsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/document/$id': {
       id: '/_authenticated/document/$id'
       path: '/document/$id'
@@ -120,12 +137,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedTrendsRoute: typeof AuthenticatedTrendsRoute
   AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedDocumentIdRoute: typeof AuthenticatedDocumentIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedTrendsRoute: AuthenticatedTrendsRoute,
   AuthenticatedUploadRoute: AuthenticatedUploadRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedDocumentIdRoute: AuthenticatedDocumentIdRoute,
