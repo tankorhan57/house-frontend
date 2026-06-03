@@ -27,6 +27,7 @@ type ApiOptions = {
   method?: string;
   body?: unknown;
   signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export async function api<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -35,17 +36,30 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     ...(await authHeader()),
   };
 
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (options.signal) {
+    options.signal.addEventListener("abort", () => controller.abort());
+  }
+
   let res: Response;
   try {
+    console.info(`[api] ${options.method ?? "GET"} ${path}`);
     res = await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? "GET",
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      signal: options.signal,
+      signal: controller.signal,
     });
-  } catch {
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("The server took too long to respond. Please try again.", 0);
+    }
     throw new ApiError("Network error. Please check your connection and try again.", 0);
   }
+  clearTimeout(timer);
 
   if (res.status === 401) {
     redirectToLogin();
