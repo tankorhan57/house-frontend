@@ -96,8 +96,8 @@ function Dashboard() {
 
       {!isLoading && !isError && documents.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
-          {documents.map((doc) => (
-            <DocumentCard key={doc.documentId} doc={doc} />
+          {documents.map((doc, i) => (
+            <DocumentCard key={doc.documentId ?? `doc-${i}`} doc={doc} />
           ))}
         </div>
       )}
