@@ -1,14 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import {
-  FileText,
-  CalendarDays,
-  Stethoscope,
-  BellRing,
-  AlertCircle,
-  Plus,
-} from "lucide-react";
+import { FileText, CalendarDays, Stethoscope, BellRing, AlertCircle, Plus } from "lucide-react";
 import { apiClient, type MedicalDocument } from "@/lib/api";
 import { UrgencyBadge } from "@/components/urgency-badge";
 import { Disclaimer } from "@/components/disclaimer";

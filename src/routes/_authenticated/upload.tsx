@@ -91,33 +91,36 @@ function UploadPage() {
   const updateEntry = (id: string, patch: Partial<FileEntry>) =>
     replaceEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
 
-  const addFiles = useCallback((files: FileList | File[]) => {
-    const newEntries: FileEntry[] = [];
-    Array.from(files).forEach((file) => {
-      const err = validate(file);
-      if (err) {
-        toast.error(`${file.name}: ${err}`);
-        return;
-      }
-      const previewUrl = isImage(file) ? URL.createObjectURL(file) : undefined;
-      if (previewUrl) previewUrlsRef.current.add(previewUrl);
-      const id = crypto.randomUUID();
-      newEntries.push({
-        file,
-        id,
-        uploadName: uniqueUploadName(file, id),
-        status: "pending",
-        progress: 0,
-        previewUrl,
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      const newEntries: FileEntry[] = [];
+      Array.from(files).forEach((file) => {
+        const err = validate(file);
+        if (err) {
+          toast.error(`${file.name}: ${err}`);
+          return;
+        }
+        const previewUrl = isImage(file) ? URL.createObjectURL(file) : undefined;
+        if (previewUrl) previewUrlsRef.current.add(previewUrl);
+        const id = crypto.randomUUID();
+        newEntries.push({
+          file,
+          id,
+          uploadName: uniqueUploadName(file, id),
+          status: "pending",
+          progress: 0,
+          previewUrl,
+        });
       });
-    });
-    if (newEntries.length) {
-      replaceEntries((prev) => [...prev, ...newEntries]);
-      toast.success(
-        newEntries.length === 1 ? "1 file selected." : `${newEntries.length} files selected.`,
-      );
-    }
-  }, [replaceEntries]);
+      if (newEntries.length) {
+        replaceEntries((prev) => [...prev, ...newEntries]);
+        toast.success(
+          newEntries.length === 1 ? "1 file selected." : `${newEntries.length} files selected.`,
+        );
+      }
+    },
+    [replaceEntries],
+  );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -237,8 +240,7 @@ function UploadPage() {
         toast.success(`${entry.file.name} uploaded and analyzed.`);
       } catch (err) {
         anyError = true;
-        const message =
-          err instanceof ApiError ? err.message : "Upload failed. Please try again.";
+        const message = err instanceof ApiError ? err.message : "Upload failed. Please try again.";
         updateEntry(entry.id, { status: "error", error: message });
         toast.error(`${entry.file.name}: ${message}`);
       }
@@ -264,9 +266,7 @@ function UploadPage() {
     }
   };
 
-  const pendingCount = entries.filter(
-    (e) => e.status === "pending" || e.status === "error",
-  ).length;
+  const pendingCount = entries.filter((e) => e.status === "pending" || e.status === "error").length;
   const allDone = entries.length > 0 && entries.every((e) => e.status === "done");
 
   return (
@@ -350,51 +350,49 @@ function UploadPage() {
                   key={entry.id}
                   className="rounded-lg border border-border bg-muted/40 px-4 py-3"
                 >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
-                    {entry.previewUrl ? (
-                      <img
-                        src={entry.previewUrl}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <FileText className="h-5 w-5 text-muted-foreground" />
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-sm font-medium text-foreground">{entry.file.name}</p>
-                      {entry.status === "done" ? (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-routine" />
-                      ) : entry.status === "error" ? (
-                        <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
-                      ) : entry.status === "uploading" || entry.status === "processing" ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
-                      ) : null}
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+                      {entry.previewUrl ? (
+                        <img src={entry.previewUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {entry.file.name}
+                        </p>
+                        {entry.status === "done" ? (
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-routine" />
+                        ) : entry.status === "error" ? (
+                          <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                        ) : entry.status === "uploading" || entry.status === "processing" ? (
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formatSize(entry.file.size)}
+                        {entry.status === "uploading" && ` · Uploading ${entry.progress}%`}
+                        {entry.status === "processing" && " · Analyzing…"}
+                        {entry.status === "done" && " · Done"}
+                        {entry.status === "error" && ` · ${entry.error ?? "Failed"}`}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {formatSize(entry.file.size)}
-                      {entry.status === "uploading" && ` · Uploading ${entry.progress}%`}
-                      {entry.status === "processing" && " · Analyzing…"}
-                      {entry.status === "done" && " · Done"}
-                      {entry.status === "error" && ` · ${entry.error ?? "Failed"}`}
-                    </p>
+                    {(entry.status === "pending" || entry.status === "error") && !running && (
+                      <button
+                        type="button"
+                        onClick={() => removeEntry(entry.id)}
+                        className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        aria-label="Remove file"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
-                  {(entry.status === "pending" || entry.status === "error") && !running && (
-                    <button
-                      type="button"
-                      onClick={() => removeEntry(entry.id)}
-                      className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      aria-label="Remove file"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                  {entry.status === "uploading" && (
+                    <Progress value={entry.progress} className="mt-2 h-1" />
                   )}
-                </div>
-                {entry.status === "uploading" && (
-                  <Progress value={entry.progress} className="mt-2 h-1" />
-                )}
                 </li>
               ))}
             </ul>
@@ -415,9 +413,7 @@ function UploadPage() {
             ) : (
               <>
                 <UploadCloud className="h-4 w-4" />
-                {pendingCount > 1
-                  ? `Upload & analyze ${pendingCount} files`
-                  : "Upload & analyze"}
+                {pendingCount > 1 ? `Upload & analyze ${pendingCount} files` : "Upload & analyze"}
               </>
             )}
           </Button>
