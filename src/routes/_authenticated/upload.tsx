@@ -28,15 +28,17 @@ interface FileEntry {
   status: FileStatus;
   progress: number;
   previewUrl?: string;
+  documentId?: string;
+  storageKey?: string;
   error?: string;
 }
 
-function uniqueUploadName(fileName: string, id: string) {
-  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+function uniqueUploadName(file: File, id: string) {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const dotIndex = safeName.lastIndexOf(".");
-  const suffix = id.slice(0, 8);
-  if (dotIndex <= 0) return `${safeName}-${suffix}`;
-  return `${safeName.slice(0, dotIndex)}-${suffix}${safeName.slice(dotIndex)}`;
+  const uniquePrefix = `upload_${Date.now()}_${file.lastModified}_${file.size}_${id.replace(/-/g, "")}`;
+  if (dotIndex <= 0) return `${uniquePrefix}_${safeName}`;
+  return `${uniquePrefix}_${safeName.slice(0, dotIndex)}${safeName.slice(dotIndex)}`;
 }
 
 function validate(file: File): string | null {
@@ -90,7 +92,7 @@ function UploadPage() {
       newEntries.push({
         file,
         id,
-        uploadName: uniqueUploadName(file.name, id),
+        uploadName: uniqueUploadName(file, id),
         status: "pending",
         progress: 0,
         previewUrl,
@@ -134,10 +136,18 @@ function UploadPage() {
     // API Gateway has a 29s timeout, so parallel calls would race and fail.
     let anyError = false;
     // Diagnostic: detect when the backend hands back the same storage key or
-    // documentId for different files. If it does, each upload overwrites the
-    // previous one in storage — which looks like "only one file uploaded".
-    const seenIds = new Map<string, string>();
-    const seenKeys = new Map<string, string>();
+    // documentId for different files. Include completed entries too, because
+    // users often add files in separate browse/drop actions.
+    const seenIds = new Map(
+      entries
+        .filter((entry) => entry.documentId)
+        .map((entry) => [entry.documentId as string, entry.file.name]),
+    );
+    const seenKeys = new Map(
+      entries
+        .filter((entry) => entry.storageKey)
+        .map((entry) => [entry.storageKey as string, entry.file.name]),
+    );
     let collisionDetected = false;
 
     for (const entry of pending) {
@@ -155,6 +165,7 @@ function UploadPage() {
           documentId: presign.documentId,
           key: presign.key,
         });
+        toast.info(`Uploading ${entry.file.name}`);
 
         const idOwner = seenIds.get(presign.documentId);
         const keyOwner = seenKeys.get(presign.key);
@@ -186,7 +197,12 @@ function UploadPage() {
           fileName: entry.uploadName,
         });
 
-        updateEntry(entry.id, { status: "done" });
+        updateEntry(entry.id, {
+          status: "done",
+          documentId: presign.documentId,
+          storageKey: presign.key,
+        });
+        toast.success(`${entry.file.name} uploaded and analyzed.`);
       } catch (err) {
         anyError = true;
         const message =
