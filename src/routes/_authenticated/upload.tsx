@@ -234,7 +234,10 @@ function UploadPage() {
                   type="button"
                   onClick={() => {
                     entries.forEach((entry) => {
-                      if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+                      if (entry.previewUrl) {
+                        URL.revokeObjectURL(entry.previewUrl);
+                        previewUrlsRef.current.delete(entry.previewUrl);
+                      }
                     });
                     setEntries([]);
                   }}
@@ -245,11 +248,11 @@ function UploadPage() {
               )}
             </div>
             <ul className="space-y-2">
-            {entries.map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-lg border border-border bg-muted/40 px-4 py-3"
-              >
+              {entries.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="rounded-lg border border-border bg-muted/40 px-4 py-3"
+                >
                 <div className="flex items-center gap-3">
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
                     {entry.previewUrl ? (
@@ -295,8 +298,8 @@ function UploadPage() {
                 {entry.status === "uploading" && (
                   <Progress value={entry.progress} className="mt-2 h-1" />
                 )}
-              </li>
-            ))}
+                </li>
+              ))}
             </ul>
           </div>
         )}
