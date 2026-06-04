@@ -122,6 +122,13 @@ function UploadPage() {
     // Process files sequentially — Bedrock analysis takes ~25s per file and
     // API Gateway has a 29s timeout, so parallel calls would race and fail.
     let anyError = false;
+    // Diagnostic: detect when the backend hands back the same storage key or
+    // documentId for different files. If it does, each upload overwrites the
+    // previous one in storage — which looks like "only one file uploaded".
+    const seenIds = new Map<string, string>();
+    const seenKeys = new Map<string, string>();
+    let collisionDetected = false;
+
     for (const entry of pending) {
       try {
         updateEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
@@ -130,6 +137,31 @@ function UploadPage() {
           fileType: entry.file.type,
           fileSize: entry.file.size,
         });
+
+        console.info("[upload] presign result", {
+          file: entry.file.name,
+          documentId: presign.documentId,
+          key: presign.key,
+        });
+
+        const idOwner = seenIds.get(presign.documentId);
+        const keyOwner = seenKeys.get(presign.key);
+        if (idOwner || keyOwner) {
+          collisionDetected = true;
+          console.error(
+            "[upload] DUPLICATE presign — the backend returned an identical " +
+              (idOwner ? "documentId" : "key") +
+              " for two different files. The second upload will overwrite the first.",
+            {
+              file: entry.file.name,
+              collidesWith: idOwner ?? keyOwner,
+              documentId: presign.documentId,
+              key: presign.key,
+            },
+          );
+        }
+        seenIds.set(presign.documentId, entry.file.name);
+        seenKeys.set(presign.key, entry.file.name);
 
         await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
           updateEntry(entry.id, { progress: pct }),
@@ -154,6 +186,16 @@ function UploadPage() {
 
     await queryClient.invalidateQueries({ queryKey: ["documents"] });
     setRunning(false);
+
+    if (collisionDetected) {
+      toast.error(
+        "The storage service gave the same location to multiple files, so they " +
+          "overwrote each other. This is a server configuration issue — each file " +
+          "needs a unique storage key.",
+        { duration: 8000 },
+      );
+      return;
+    }
 
     if (!anyError) {
       toast.success(
