@@ -52,17 +52,17 @@ function UploadPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
+  const previewUrlsRef = useRef<Set<string>>(new Set());
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
     return () => {
-      entries.forEach((entry) => {
-        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
-      });
+      previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      previewUrlsRef.current.clear();
     };
-  }, [entries]);
+  }, []);
 
   const updateEntry = (id: string, patch: Partial<FileEntry>) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -75,12 +75,14 @@ function UploadPage() {
         toast.error(`${file.name}: ${err}`);
         return;
       }
+      const previewUrl = isImage(file) ? URL.createObjectURL(file) : undefined;
+      if (previewUrl) previewUrlsRef.current.add(previewUrl);
       newEntries.push({
         file,
         id: crypto.randomUUID(),
         status: "pending",
         progress: 0,
-        previewUrl: isImage(file) ? URL.createObjectURL(file) : undefined,
+        previewUrl,
       });
     });
     if (newEntries.length) {
@@ -104,7 +106,10 @@ function UploadPage() {
   const removeEntry = (id: string) =>
     setEntries((prev) => {
       const target = prev.find((e) => e.id === id);
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+        previewUrlsRef.current.delete(target.previewUrl);
+      }
       return prev.filter((e) => e.id !== id);
     });
 
