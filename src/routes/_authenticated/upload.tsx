@@ -15,7 +15,7 @@ export const Route = createFileRoute("/_authenticated/upload")({
   component: UploadPage,
 });
 
-const MAX_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_SIZE = 20 * 1024 * 1024;
 const ACCEPTED = ["application/pdf", "image/jpeg", "image/png"];
 const ACCEPT_ATTR = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
 
@@ -24,40 +24,21 @@ type FileStatus = "pending" | "uploading" | "processing" | "done" | "error";
 interface FileEntry {
   file: File;
   id: string;
-  uploadName: string;
   status: FileStatus;
   progress: number;
   previewUrl?: string;
-  documentId?: string;
-  storageKey?: string;
   error?: string;
 }
 
-function uniqueUploadName(file: File, id: string) {
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const dotIndex = safeName.lastIndexOf(".");
-  const uniquePrefix = `upload_${Date.now()}_${file.lastModified}_${file.size}_${id.replace(/-/g, "")}`;
-  if (dotIndex <= 0) return `${uniquePrefix}_${safeName}`;
-  return `${uniquePrefix}_${safeName.slice(0, dotIndex)}${safeName.slice(dotIndex)}`;
-}
-
 function validate(file: File): string | null {
-  if (!ACCEPTED.includes(file.type)) {
-    return "Unsupported file type. Please upload a PDF, JPG, or PNG.";
-  }
-  if (file.size > MAX_SIZE) {
-    return "File is larger than 20MB.";
-  }
+  if (!ACCEPTED.includes(file.type)) return "Unsupported file type. Please upload a PDF, JPG, or PNG.";
+  if (file.size > MAX_SIZE) return "File is larger than 20MB.";
   return null;
 }
 
 function formatSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function isImage(file: File) {
-  return file.type.startsWith("image/");
 }
 
 function UploadPage() {
@@ -67,207 +48,110 @@ function UploadPage() {
   const entriesRef = useRef<FileEntry[]>([]);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [running, setRunning] = useState(false);
+  const processingRef = useRef(false);
 
+  // Keep ref in sync so the async queue loop can always read fresh state
   useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
 
   useEffect(() => {
-    const previewUrls = previewUrlsRef.current;
+    const urls = previewUrlsRef.current;
     return () => {
-      previewUrls.forEach((url) => URL.revokeObjectURL(url));
-      previewUrls.clear();
+      urls.forEach(URL.revokeObjectURL);
+      urls.clear();
     };
   }, []);
 
-  const replaceEntries = useCallback((updater: (previous: FileEntry[]) => FileEntry[]) => {
-    setEntries((previous) => {
-      const next = updater(previous);
-      entriesRef.current = next;
-      return next;
-    });
+  const patchEntry = useCallback((id: string, patch: Partial<FileEntry>) => {
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   }, []);
 
-  const updateEntry = (id: string, patch: Partial<FileEntry>) =>
-    replaceEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  // Self-sustaining sequential upload loop.
+  // Starts when files are added; keeps going until the queue is empty.
+  const startQueue = useCallback(async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+
+    for (;;) {
+      // One tick so any pending setEntries calls have flushed to the ref
+      await Promise.resolve();
+      const entry = entriesRef.current.find((e) => e.status === "pending" || e.status === "error");
+      if (!entry) break;
+
+      try {
+        patchEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
+
+        const presign = await apiClient.presign({
+          fileName: entry.file.name,
+          fileType: entry.file.type,
+          fileSize: entry.file.size,
+        });
+
+        await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
+          patchEntry(entry.id, { progress: pct }),
+        );
+
+        patchEntry(entry.id, { status: "processing", progress: 100 });
+
+        await apiClient.process({
+          documentId: presign.documentId,
+          key: presign.key,
+          fileName: entry.file.name,
+        });
+
+        patchEntry(entry.id, { status: "done" });
+        toast.success(`${entry.file.name} — done.`);
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : "Upload failed. Please try again.";
+        patchEntry(entry.id, { status: "error", error: msg });
+        toast.error(`${entry.file.name}: ${msg}`);
+      }
+    }
+
+    processingRef.current = false;
+    await queryClient.invalidateQueries({ queryKey: ["documents"] });
+  }, [patchEntry, queryClient]);
 
   const addFiles = useCallback(
     (files: FileList | File[]) => {
-      const newEntries: FileEntry[] = [];
+      const toAdd: FileEntry[] = [];
       Array.from(files).forEach((file) => {
         const err = validate(file);
         if (err) {
           toast.error(`${file.name}: ${err}`);
           return;
         }
-        const previewUrl = isImage(file) ? URL.createObjectURL(file) : undefined;
+        const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
         if (previewUrl) previewUrlsRef.current.add(previewUrl);
-        const id = crypto.randomUUID();
-        newEntries.push({
-          file,
-          id,
-          uploadName: uniqueUploadName(file, id),
-          status: "pending",
-          progress: 0,
-          previewUrl,
-        });
+        toAdd.push({ file, id: crypto.randomUUID(), status: "pending", progress: 0, previewUrl });
       });
-      if (newEntries.length) {
-        replaceEntries((prev) => [...prev, ...newEntries]);
-        toast.success(
-          newEntries.length === 1 ? "1 file selected." : `${newEntries.length} files selected.`,
-        );
-      }
+      if (!toAdd.length) return;
+
+      // Update ref immediately so the queue loop sees the new files right away
+      entriesRef.current = [...entriesRef.current, ...toAdd];
+      setEntries((prev) => [...prev, ...toAdd]);
+      toast.success(toAdd.length === 1 ? "1 file added — uploading…" : `${toAdd.length} files added — uploading…`);
+      startQueue();
     },
-    [replaceEntries],
+    [startQueue],
   );
 
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      if (running) return;
-      if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
-    },
-    [running, addFiles],
-  );
-
-  const removeEntry = (id: string) =>
-    replaceEntries((prev) => {
-      const target = prev.find((e) => e.id === id);
-      if (target?.previewUrl) {
-        URL.revokeObjectURL(target.previewUrl);
-        previewUrlsRef.current.delete(target.previewUrl);
+  const removeEntry = useCallback((id: string) => {
+    setEntries((prev) => {
+      const t = prev.find((e) => e.id === id);
+      if (t?.previewUrl) {
+        URL.revokeObjectURL(t.previewUrl);
+        previewUrlsRef.current.delete(t.previewUrl);
       }
-      return prev.filter((e) => e.id !== id);
+      const next = prev.filter((e) => e.id !== id);
+      entriesRef.current = next;
+      return next;
     });
+  }, []);
 
-  const handleUpload = async () => {
-    const pending = entriesRef.current.filter(
-      (e) => e.status === "pending" || e.status === "error",
-    );
-    if (!pending.length) return;
-
-    setRunning(true);
-
-    // Process files sequentially — Bedrock analysis takes ~25s per file and
-    // API Gateway has a 29s timeout, so parallel calls would race and fail.
-    let anyError = false;
-    // Diagnostic: detect when the backend hands back the same storage key or
-    // documentId for different files. Include completed entries too, because
-    // users often add files in separate browse/drop actions.
-    const seenIds = new Map(
-      entriesRef.current
-        .filter((entry) => entry.documentId)
-        .map((entry) => [entry.documentId as string, entry.file.name]),
-    );
-    const seenKeys = new Map(
-      entriesRef.current
-        .filter((entry) => entry.storageKey)
-        .map((entry) => [entry.storageKey as string, entry.file.name]),
-    );
-    let unresolvedCollision = false;
-
-    for (const entry of pending) {
-      try {
-        updateEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
-        let uploadName = entry.uploadName;
-        let presign: Awaited<ReturnType<typeof apiClient.presign>> | undefined;
-
-        for (let attempt = 0; attempt < 5; attempt += 1) {
-          const result = await apiClient.presign({
-            fileName: uploadName,
-            fileType: entry.file.type,
-            fileSize: entry.file.size,
-          });
-
-          console.info("[upload] presign result", {
-            file: entry.file.name,
-            uploadName,
-            documentId: result.documentId,
-            key: result.key,
-          });
-
-          const idOwner = seenIds.get(result.documentId);
-          const keyOwner = seenKeys.get(result.key);
-          if (!idOwner && !keyOwner) {
-            presign = result;
-            break;
-          }
-
-          console.error(
-            "[upload] DUPLICATE presign — retrying with a stronger unique filename before upload.",
-            {
-              file: entry.file.name,
-              collidesWith: idOwner ?? keyOwner,
-              documentId: result.documentId,
-              key: result.key,
-              attempt: attempt + 1,
-            },
-          );
-
-          uploadName = uniqueUploadName(entry.file, crypto.randomUUID());
-          updateEntry(entry.id, { uploadName });
-        }
-
-        if (!presign) {
-          unresolvedCollision = true;
-          throw new ApiError(
-            "The storage service keeps returning the same location for this file. Please try again.",
-            409,
-          );
-        }
-        toast.info(`Uploading ${entry.file.name}`);
-        seenIds.set(presign.documentId, entry.file.name);
-        seenKeys.set(presign.key, entry.file.name);
-
-        await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
-          updateEntry(entry.id, { progress: pct }),
-        );
-
-        updateEntry(entry.id, { status: "processing", progress: 100 });
-        await apiClient.process({
-          documentId: presign.documentId,
-          key: presign.key,
-          fileName: uploadName,
-        });
-
-        updateEntry(entry.id, {
-          status: "done",
-          documentId: presign.documentId,
-          storageKey: presign.key,
-        });
-        toast.success(`${entry.file.name} uploaded and analyzed.`);
-      } catch (err) {
-        anyError = true;
-        const message = err instanceof ApiError ? err.message : "Upload failed. Please try again.";
-        updateEntry(entry.id, { status: "error", error: message });
-        toast.error(`${entry.file.name}: ${message}`);
-      }
-    }
-
-    await queryClient.invalidateQueries({ queryKey: ["documents"] });
-    setRunning(false);
-
-    if (unresolvedCollision) {
-      toast.error(
-        "The storage service gave the same location to multiple files, so they " +
-          "overwrote each other. This is a server configuration issue — each file " +
-          "needs a unique storage key.",
-        { duration: 8000 },
-      );
-      return;
-    }
-
-    if (!anyError) {
-      toast.success(
-        pending.length === 1 ? "Document ready." : `${pending.length} documents ready.`,
-      );
-    }
-  };
-
-  const pendingCount = entries.filter((e) => e.status === "pending" || e.status === "error").length;
+  const running = entries.some((e) => e.status === "uploading" || e.status === "processing");
+  const doneCount = entries.filter((e) => e.status === "done").length;
   const allDone = entries.length > 0 && entries.every((e) => e.status === "done");
 
   return (
@@ -275,7 +159,8 @@ function UploadPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Upload documents</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add lab reports, imaging summaries, or visit notes (PDF, JPG, or PNG up to 20MB each).
+          Add lab reports, imaging summaries, or visit notes (PDF, JPG, or PNG · max 20MB).
+          Files upload automatically as soon as you select them.
         </p>
       </div>
 
@@ -283,30 +168,37 @@ function UploadPage() {
         <div
           role="button"
           tabIndex={0}
-          onClick={() => !running && inputRef.current?.click()}
+          onClick={() => inputRef.current?.click()}
           onKeyDown={(e) => {
-            if ((e.key === "Enter" || e.key === " ") && !running) inputRef.current?.click();
+            if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
           }}
           onDragOver={(e) => {
             e.preventDefault();
-            if (!running) setDragging(true);
+            setDragging(true);
           }}
           onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
+          }}
           className={cn(
             "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors",
             dragging && "border-accent bg-accent/5",
-            running && "pointer-events-none opacity-50",
           )}
         >
           <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-accent">
-            <UploadCloud className="h-7 w-7" />
+            {running ? (
+              <Loader2 className="h-7 w-7 animate-spin" />
+            ) : (
+              <UploadCloud className="h-7 w-7" />
+            )}
           </span>
           <p className="text-sm font-medium text-foreground">
-            Drag &amp; drop files here, or click to browse
+            {running ? "Uploading… click to queue more files" : "Drag & drop files here, or click to browse"}
           </p>
           <p className="text-xs text-muted-foreground">
-            PDF, JPG, or PNG · max 20MB · multiple files supported
+            PDF, JPG, or PNG · max 20MB · select multiple at once or click again to add more
           </p>
           <input
             ref={inputRef}
@@ -325,19 +217,22 @@ function UploadPage() {
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between gap-3 text-sm">
               <p className="font-medium text-foreground">
-                {entries.length} {entries.length === 1 ? "file" : "files"} selected
+                {running
+                  ? `Uploading… (${doneCount} of ${entries.length} done)`
+                  : `${entries.length} ${entries.length === 1 ? "file" : "files"}`}
               </p>
               {!running && (
                 <button
                   type="button"
                   onClick={() => {
-                    entries.forEach((entry) => {
-                      if (entry.previewUrl) {
-                        URL.revokeObjectURL(entry.previewUrl);
-                        previewUrlsRef.current.delete(entry.previewUrl);
+                    entries.forEach((e) => {
+                      if (e.previewUrl) {
+                        URL.revokeObjectURL(e.previewUrl);
+                        previewUrlsRef.current.delete(e.previewUrl);
                       }
                     });
-                    replaceEntries(() => []);
+                    entriesRef.current = [];
+                    setEntries([]);
                   }}
                   className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
                 >
@@ -345,12 +240,10 @@ function UploadPage() {
                 </button>
               )}
             </div>
+
             <ul className="space-y-2">
               {entries.map((entry) => (
-                <li
-                  key={entry.id}
-                  className="rounded-lg border border-border bg-muted/40 px-4 py-3"
-                >
+                <li key={entry.id} className="rounded-lg border border-border bg-muted/40 px-4 py-3">
                   <div className="flex items-center gap-3">
                     <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
                       {entry.previewUrl ? (
@@ -361,26 +254,29 @@ function UploadPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-2">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {entry.file.name}
-                        </p>
-                        {entry.status === "done" ? (
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-routine" />
-                        ) : entry.status === "error" ? (
+                        <p className="truncate text-sm font-medium text-foreground">{entry.file.name}</p>
+                        {entry.status === "done" && (
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+                        )}
+                        {entry.status === "error" && (
                           <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
-                        ) : entry.status === "uploading" || entry.status === "processing" ? (
+                        )}
+                        {(entry.status === "uploading" || entry.status === "processing") && (
                           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
-                        ) : null}
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {formatSize(entry.file.size)}
+                        {entry.status === "pending" && " · Waiting…"}
                         {entry.status === "uploading" && ` · Uploading ${entry.progress}%`}
-                        {entry.status === "processing" && " · Analyzing…"}
+                        {entry.status === "processing" && " · Analyzing with AI…"}
                         {entry.status === "done" && " · Done"}
-                        {entry.status === "error" && ` · ${entry.error ?? "Failed"}`}
+                        {entry.status === "error" && (
+                          <span className="text-destructive"> · {entry.error ?? "Failed"}</span>
+                        )}
                       </p>
                     </div>
-                    {(entry.status === "pending" || entry.status === "error") && !running && (
+                    {entry.status === "pending" && (
                       <button
                         type="button"
                         onClick={() => removeEntry(entry.id)}
@@ -388,6 +284,15 @@ function UploadPage() {
                         aria-label="Remove file"
                       >
                         <X className="h-4 w-4" />
+                      </button>
+                    )}
+                    {entry.status === "error" && (
+                      <button
+                        type="button"
+                        onClick={() => patchEntry(entry.id, { status: "pending", error: undefined })}
+                        className="rounded-md px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                      >
+                        Retry
                       </button>
                     )}
                   </div>
@@ -400,33 +305,16 @@ function UploadPage() {
           </div>
         )}
 
-        <div className="mt-4 flex gap-2">
-          <Button
-            className="flex-1"
-            disabled={pendingCount === 0 || running}
-            onClick={handleUpload}
-          >
-            {running ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Processing…
-              </>
-            ) : (
-              <>
-                <UploadCloud className="h-4 w-4" />
-                {pendingCount > 1 ? `Upload & analyze ${pendingCount} files` : "Upload & analyze"}
-              </>
-            )}
-          </Button>
-          {allDone && (
-            <Button asChild variant="outline">
+        {allDone && (
+          <div className="mt-4">
+            <Button asChild className="w-full">
               <Link to="/">
                 <CheckCircle2 className="h-4 w-4" />
-                View documents
+                View {doneCount} {doneCount === 1 ? "document" : "documents"}
               </Link>
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </Card>
 
       <Disclaimer />
