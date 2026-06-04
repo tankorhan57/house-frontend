@@ -119,42 +119,38 @@ function UploadPage() {
 
     setRunning(true);
 
-    // Upload & analyze every pending file in parallel so they all run at the
-    // same time — a single slow file no longer blocks the others.
-    const results = await Promise.all(
-      pending.map(async (entry) => {
-        try {
-          updateEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
-          const presign = await apiClient.presign({
-            fileName: entry.file.name,
-            fileType: entry.file.type,
-            fileSize: entry.file.size,
-          });
+    // Process files sequentially — Bedrock analysis takes ~25s per file and
+    // API Gateway has a 29s timeout, so parallel calls would race and fail.
+    let anyError = false;
+    for (const entry of pending) {
+      try {
+        updateEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
+        const presign = await apiClient.presign({
+          fileName: entry.file.name,
+          fileType: entry.file.type,
+          fileSize: entry.file.size,
+        });
 
-          await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
-            updateEntry(entry.id, { progress: pct }),
-          );
+        await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
+          updateEntry(entry.id, { progress: pct }),
+        );
 
-          updateEntry(entry.id, { status: "processing", progress: 100 });
-          await apiClient.process({
-            documentId: presign.documentId,
-            key: presign.key,
-            fileName: entry.file.name,
-          });
+        updateEntry(entry.id, { status: "processing", progress: 100 });
+        await apiClient.process({
+          documentId: presign.documentId,
+          key: presign.key,
+          fileName: entry.file.name,
+        });
 
-          updateEntry(entry.id, { status: "done" });
-          return true;
-        } catch (err) {
-          const message =
-            err instanceof ApiError ? err.message : "Upload failed. Please try again.";
-          updateEntry(entry.id, { status: "error", error: message });
-          toast.error(`${entry.file.name}: ${message}`);
-          return false;
-        }
-      }),
-    );
-
-    const anyError = results.some((ok) => !ok);
+        updateEntry(entry.id, { status: "done" });
+      } catch (err) {
+        anyError = true;
+        const message =
+          err instanceof ApiError ? err.message : "Upload failed. Please try again.";
+        updateEntry(entry.id, { status: "error", error: message });
+        toast.error(`${entry.file.name}: ${message}`);
+      }
+    }
 
     await queryClient.invalidateQueries({ queryKey: ["documents"] });
     setRunning(false);
