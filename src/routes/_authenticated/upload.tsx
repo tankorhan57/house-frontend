@@ -80,13 +80,13 @@ function UploadPage() {
     };
   }, []);
 
-  const replaceEntries = (updater: (previous: FileEntry[]) => FileEntry[]) => {
+  const replaceEntries = useCallback((updater: (previous: FileEntry[]) => FileEntry[]) => {
     setEntries((previous) => {
       const next = updater(previous);
       entriesRef.current = next;
       return next;
     });
-  };
+  }, []);
 
   const updateEntry = (id: string, patch: Partial<FileEntry>) =>
     replaceEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -117,7 +117,7 @@ function UploadPage() {
         newEntries.length === 1 ? "1 file selected." : `${newEntries.length} files selected.`,
       );
     }
-  }, []);
+  }, [replaceEntries]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
