@@ -140,7 +140,7 @@ function UploadPage() {
     });
 
   const handleUpload = async () => {
-    const pending = entries.filter((e) => e.status === "pending" || e.status === "error");
+    const pending = entriesRef.current.filter((e) => e.status === "pending" || e.status === "error");
     if (!pending.length) return;
 
     setRunning(true);
@@ -166,36 +166,53 @@ function UploadPage() {
     for (const entry of pending) {
       try {
         updateEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
-        const presign = await apiClient.presign({
-          fileName: entry.uploadName,
-          fileType: entry.file.type,
-          fileSize: entry.file.size,
-        });
+        let uploadName = entry.uploadName;
+        let presign: Awaited<ReturnType<typeof apiClient.presign>> | undefined;
 
-        console.info("[upload] presign result", {
-          file: entry.file.name,
-          uploadName: entry.uploadName,
-          documentId: presign.documentId,
-          key: presign.key,
-        });
-        toast.info(`Uploading ${entry.file.name}`);
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          const result = await apiClient.presign({
+            fileName: uploadName,
+            fileType: entry.file.type,
+            fileSize: entry.file.size,
+          });
 
-        const idOwner = seenIds.get(presign.documentId);
-        const keyOwner = seenKeys.get(presign.key);
-        if (idOwner || keyOwner) {
+          console.info("[upload] presign result", {
+            file: entry.file.name,
+            uploadName,
+            documentId: result.documentId,
+            key: result.key,
+          });
+
+          const idOwner = seenIds.get(result.documentId);
+          const keyOwner = seenKeys.get(result.key);
+          if (!idOwner && !keyOwner) {
+            presign = result;
+            break;
+          }
+
           collisionDetected = true;
           console.error(
-            "[upload] DUPLICATE presign — the backend returned an identical " +
-              (idOwner ? "documentId" : "key") +
-              " for two different files. The second upload will overwrite the first.",
+            "[upload] DUPLICATE presign — retrying with a stronger unique filename before upload.",
             {
               file: entry.file.name,
               collidesWith: idOwner ?? keyOwner,
-              documentId: presign.documentId,
-              key: presign.key,
+              documentId: result.documentId,
+              key: result.key,
+              attempt: attempt + 1,
             },
           );
+
+          uploadName = uniqueUploadName(entry.file, crypto.randomUUID());
+          updateEntry(entry.id, { uploadName });
         }
+
+        if (!presign) {
+          throw new ApiError(
+            "The storage service keeps returning the same location for this file. Please try again.",
+            409,
+          );
+        }
+        toast.info(`Uploading ${entry.file.name}`);
         seenIds.set(presign.documentId, entry.file.name);
         seenKeys.set(presign.key, entry.file.name);
 
@@ -207,7 +224,7 @@ function UploadPage() {
         await apiClient.process({
           documentId: presign.documentId,
           key: presign.key,
-          fileName: entry.uploadName,
+          fileName: uploadName,
         });
 
         updateEntry(entry.id, {
@@ -317,7 +334,7 @@ function UploadPage() {
                         previewUrlsRef.current.delete(entry.previewUrl);
                       }
                     });
-                    setEntries([]);
+                    replaceEntries(() => []);
                   }}
                   className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
                 >
