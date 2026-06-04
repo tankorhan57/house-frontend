@@ -140,7 +140,9 @@ function UploadPage() {
     });
 
   const handleUpload = async () => {
-    const pending = entriesRef.current.filter((e) => e.status === "pending" || e.status === "error");
+    const pending = entriesRef.current.filter(
+      (e) => e.status === "pending" || e.status === "error",
+    );
     if (!pending.length) return;
 
     setRunning(true);
@@ -152,16 +154,16 @@ function UploadPage() {
     // documentId for different files. Include completed entries too, because
     // users often add files in separate browse/drop actions.
     const seenIds = new Map(
-      entries
+      entriesRef.current
         .filter((entry) => entry.documentId)
         .map((entry) => [entry.documentId as string, entry.file.name]),
     );
     const seenKeys = new Map(
-      entries
+      entriesRef.current
         .filter((entry) => entry.storageKey)
         .map((entry) => [entry.storageKey as string, entry.file.name]),
     );
-    let collisionDetected = false;
+    let unresolvedCollision = false;
 
     for (const entry of pending) {
       try {
@@ -190,7 +192,6 @@ function UploadPage() {
             break;
           }
 
-          collisionDetected = true;
           console.error(
             "[upload] DUPLICATE presign — retrying with a stronger unique filename before upload.",
             {
@@ -207,6 +208,7 @@ function UploadPage() {
         }
 
         if (!presign) {
+          unresolvedCollision = true;
           throw new ApiError(
             "The storage service keeps returning the same location for this file. Please try again.",
             409,
@@ -245,7 +247,7 @@ function UploadPage() {
     await queryClient.invalidateQueries({ queryKey: ["documents"] });
     setRunning(false);
 
-    if (collisionDetected) {
+    if (unresolvedCollision) {
       toast.error(
         "The storage service gave the same location to multiple files, so they " +
           "overwrote each other. This is a server configuration issue — each file " +
