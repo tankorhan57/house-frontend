@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { UploadCloud, FileText, Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { apiClient, uploadToPresignedUrl, ApiError } from "@/lib/api";
+import { Link } from "@tanstack/react-router";
 import { Disclaimer } from "@/components/disclaimer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,6 @@ function isImage(file: File) {
 }
 
 function UploadPage() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const previewUrlsRef = useRef<Set<string>>(new Set());
@@ -157,9 +157,8 @@ function UploadPage() {
 
     if (!anyError) {
       toast.success(
-        pending.length === 1 ? "Your document is ready." : `${pending.length} documents ready.`,
+        pending.length === 1 ? "Document ready." : `${pending.length} documents ready.`,
       );
-      navigate({ to: "/" });
     }
   };
 
@@ -300,30 +299,35 @@ function UploadPage() {
           </div>
         )}
 
-        <Button
-          className="mt-4 w-full"
-          disabled={pendingCount === 0 || running}
-          onClick={handleUpload}
-        >
-          {running ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Processing…
-            </>
-          ) : allDone ? (
-            <>
-              <CheckCircle2 className="h-4 w-4" />
-              All done
-            </>
-          ) : (
-            <>
-              <UploadCloud className="h-4 w-4" />
-              {pendingCount > 1
-                ? `Upload & analyze ${pendingCount} files`
-                : "Upload & analyze"}
-            </>
+        <div className="mt-4 flex gap-2">
+          <Button
+            className="flex-1"
+            disabled={pendingCount === 0 || running}
+            onClick={handleUpload}
+          >
+            {running ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Processing…
+              </>
+            ) : (
+              <>
+                <UploadCloud className="h-4 w-4" />
+                {pendingCount > 1
+                  ? `Upload & analyze ${pendingCount} files`
+                  : "Upload & analyze"}
+              </>
+            )}
+          </Button>
+          {allDone && (
+            <Button asChild variant="outline">
+              <Link to="/">
+                <CheckCircle2 className="h-4 w-4" />
+                View documents
+              </Link>
+            </Button>
           )}
-        </Button>
+        </div>
       </Card>
 
       <Disclaimer />
