@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ interface FileEntry {
   id: string;
   status: FileStatus;
   progress: number;
+  previewUrl?: string;
   error?: string;
 }
 
@@ -43,6 +44,10 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function isImage(file: File) {
+  return file.type.startsWith("image/");
+}
+
 function UploadPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -50,6 +55,14 @@ function UploadPage() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      entries.forEach((entry) => {
+        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+      });
+    };
+  }, [entries]);
 
   const updateEntry = (id: string, patch: Partial<FileEntry>) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -62,9 +75,20 @@ function UploadPage() {
         toast.error(`${file.name}: ${err}`);
         return;
       }
-      newEntries.push({ file, id: crypto.randomUUID(), status: "pending", progress: 0 });
+      newEntries.push({
+        file,
+        id: crypto.randomUUID(),
+        status: "pending",
+        progress: 0,
+        previewUrl: isImage(file) ? URL.createObjectURL(file) : undefined,
+      });
     });
-    if (newEntries.length) setEntries((prev) => [...prev, ...newEntries]);
+    if (newEntries.length) {
+      setEntries((prev) => [...prev, ...newEntries]);
+      toast.success(
+        newEntries.length === 1 ? "1 file selected." : `${newEntries.length} files selected.`,
+      );
+    }
   }, []);
 
   const onDrop = useCallback(
@@ -78,7 +102,11 @@ function UploadPage() {
   );
 
   const removeEntry = (id: string) =>
-    setEntries((prev) => prev.filter((e) => e.id !== id));
+    setEntries((prev) => {
+      const target = prev.find((e) => e.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((e) => e.id !== id);
+    });
 
   const handleUpload = async () => {
     const pending = entries.filter((e) => e.status === "pending" || e.status === "error");
