@@ -1,3 +1,4 @@
+import React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -48,6 +49,52 @@ function DirectionIcon({ direction }: { direction?: string }) {
   if (d.includes("low") || d.includes("down") || d === "l")
     return <TrendingDown className="h-4 w-4 text-accent" />;
   return <Minus className="h-4 w-4 text-muted-foreground" />;
+}
+
+/** Render a markdown string into React elements, handling bold, italic, lists, and hr. */
+function renderMarkdown(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  // Strip trailing doctor-questions block (already shown in structured card below)
+  const cleaned = text
+    .replace(/\*{0,2}5 Questions to Ask[^]*$/i, "")
+    .replace(/---\s*$/, "")
+    .trim();
+
+  const paragraphs = cleaned.split(/\n{2,}/);
+  paragraphs.forEach((para, pi) => {
+    if (/^---+$/.test(para.trim())) {
+      nodes.push(<hr key={pi} className="border-border" />);
+      return;
+    }
+    const lines = para.split("\n");
+    const listItems = lines.filter((l) => /^\s*[-*]\s/.test(l));
+    if (listItems.length === lines.length) {
+      nodes.push(
+        <ul key={pi} className="ml-4 space-y-1 list-disc">
+          {listItems.map((l, li) => (
+            <li key={li}>{inlineMarkdown(l.replace(/^\s*[-*]\s/, ""))}</li>
+          ))}
+        </ul>,
+      );
+    } else {
+      nodes.push(<p key={pi}>{lines.map((l, li) => [li > 0 && <br key={`br-${li}`} />, inlineMarkdown(l)])}</p>);
+    }
+  });
+  return nodes;
+}
+
+function inlineMarkdown(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
+  let last = 0, m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m[2] !== undefined) parts.push(<strong key={m.index}>{m[2]}</strong>);
+    else if (m[3] !== undefined) parts.push(<em key={m.index}>{m[3]}</em>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length === 1 ? parts[0] : parts;
 }
 
 function DocumentDetailPage() {
@@ -135,9 +182,9 @@ function DocumentDetailPage() {
       {data.interpretation && (
         <Card className="p-6">
           <h2 className="text-base font-semibold text-foreground">What this means</h2>
-          <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-foreground/90">
-            {data.interpretation}
-          </p>
+          <div className="mt-3 space-y-3 text-sm leading-relaxed text-foreground/90">
+            {renderMarkdown(data.interpretation)}
+          </div>
         </Card>
       )}
 
