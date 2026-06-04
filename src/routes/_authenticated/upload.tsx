@@ -64,9 +64,14 @@ function UploadPage() {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const previewUrlsRef = useRef<Set<string>>(new Set());
+  const entriesRef = useRef<FileEntry[]>([]);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
 
   useEffect(() => {
     return () => {
@@ -75,8 +80,16 @@ function UploadPage() {
     };
   }, []);
 
+  const replaceEntries = (updater: (previous: FileEntry[]) => FileEntry[]) => {
+    setEntries((previous) => {
+      const next = updater(previous);
+      entriesRef.current = next;
+      return next;
+    });
+  };
+
   const updateEntry = (id: string, patch: Partial<FileEntry>) =>
-    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    replaceEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
 
   const addFiles = useCallback((files: FileList | File[]) => {
     const newEntries: FileEntry[] = [];
@@ -99,7 +112,7 @@ function UploadPage() {
       });
     });
     if (newEntries.length) {
-      setEntries((prev) => [...prev, ...newEntries]);
+      replaceEntries((prev) => [...prev, ...newEntries]);
       toast.success(
         newEntries.length === 1 ? "1 file selected." : `${newEntries.length} files selected.`,
       );
@@ -117,7 +130,7 @@ function UploadPage() {
   );
 
   const removeEntry = (id: string) =>
-    setEntries((prev) => {
+    replaceEntries((prev) => {
       const target = prev.find((e) => e.id === id);
       if (target?.previewUrl) {
         URL.revokeObjectURL(target.previewUrl);
