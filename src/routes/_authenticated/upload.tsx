@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { UploadCloud, FileText, Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  UploadCloud,
+  FileText,
+  Loader2,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  RotateCcw,
+} from "lucide-react";
 import { apiClient, uploadToPresignedUrl, ApiError } from "@/lib/api";
 import { Link } from "@tanstack/react-router";
 import { Disclaimer } from "@/components/disclaimer";
@@ -17,7 +25,11 @@ export const Route = createFileRoute("/_authenticated/upload")({
 
 const MAX_SIZE = 20 * 1024 * 1024;
 const ACCEPTED = ["application/pdf", "image/jpeg", "image/png"];
-const ACCEPT_ATTR = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
+// Use only MIME types — mixing extensions + MIME types causes issues on some
+// browsers (notably iOS Safari) where the file picker ignores `multiple`.
+const ACCEPT_ATTR = "application/pdf,image/jpeg,image/png";
+
+const SESSION_KEY = "house-upload-done";
 
 type FileStatus = "pending" | "uploading" | "processing" | "done" | "error";
 
@@ -30,9 +42,18 @@ interface FileEntry {
   error?: string;
 }
 
+/** Display-only record for previously completed uploads restored from sessionStorage. */
+interface DoneRecord {
+  id: string;
+  name: string;
+  size: number;
+  status: "done";
+}
+
 function validate(file: File): string | null {
-  if (!ACCEPTED.includes(file.type)) return "Unsupported file type. Please upload a PDF, JPG, or PNG.";
-  if (file.size > MAX_SIZE) return "File is larger than 20MB.";
+  if (!ACCEPTED.includes(file.type))
+    return "Unsupported file type. Please upload a PDF, JPG, or PNG.";
+  if (file.size > MAX_SIZE) return "File is larger than 20 MB.";
   return null;
 }
 
@@ -41,20 +62,74 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// ---------------------------------------------------------------------------
+// sessionStorage helpers – survive iOS page suspension
+// ---------------------------------------------------------------------------
+
+function loadDoneRecords(): DoneRecord[] {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as DoneRecord[];
+  } catch {
+    return [];
+  }
+}
+
+function saveDoneRecord(entry: FileEntry) {
+  try {
+    const existing = loadDoneRecords();
+    // Avoid duplicates
+    if (existing.some((r) => r.id === entry.id)) return;
+    existing.push({
+      id: entry.id,
+      name: entry.file.name,
+      size: entry.file.size,
+      status: "done",
+    });
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(existing));
+  } catch {
+    // sessionStorage full or unavailable — silently continue
+  }
+}
+
+function clearDoneRecords() {
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 function UploadPage() {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const previewUrlsRef = useRef<Set<string>>(new Set());
+
+  // Authoritative source of truth for entries — always kept in sync.
+  // The async queue loop reads from this ref, never from stale closures.
   const entriesRef = useRef<FileEntry[]>([]);
   const [entries, setEntries] = useState<FileEntry[]>([]);
+
+  // Previously completed uploads restored from sessionStorage (display-only).
+  const [restoredDone, setRestoredDone] = useState<DoneRecord[]>([]);
+
   const [dragging, setDragging] = useState(false);
   const processingRef = useRef(false);
 
-  // Keep ref in sync so the async queue loop can always read fresh state
+  // On mount, restore any completed uploads from a prior picker session
   useEffect(() => {
-    entriesRef.current = entries;
-  }, [entries]);
+    const records = loadDoneRecords();
+    if (records.length) {
+      setRestoredDone(records);
+    }
+  }, []);
 
+  // Cleanup preview URLs on unmount
   useEffect(() => {
     const urls = previewUrlsRef.current;
     return () => {
@@ -63,24 +138,54 @@ function UploadPage() {
     };
   }, []);
 
-  const patchEntry = useCallback((id: string, patch: Partial<FileEntry>) => {
-    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-  }, []);
+  // ---------------------------------------------------------------------------
+  // State helpers — all mutations go through here so ref stays in sync
+  // ---------------------------------------------------------------------------
 
-  // Self-sustaining sequential upload loop.
-  // Starts when files are added; keeps going until the queue is empty.
+  const syncSetEntries = useCallback(
+    (updater: (prev: FileEntry[]) => FileEntry[]) => {
+      setEntries((prev) => {
+        const next = updater(prev);
+        entriesRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const patchEntry = useCallback(
+    (id: string, patch: Partial<FileEntry>) => {
+      syncSetEntries((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      );
+    },
+    [syncSetEntries],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Sequential upload queue
+  // ---------------------------------------------------------------------------
+
   const startQueue = useCallback(async () => {
     if (processingRef.current) return;
     processingRef.current = true;
 
-    for (;;) {
-      // One tick so any pending setEntries calls have flushed to the ref
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // Yield a microtask so any pending setState calls flush to the ref
       await Promise.resolve();
-      const entry = entriesRef.current.find((e) => e.status === "pending" || e.status === "error");
+
+      const entry = entriesRef.current.find(
+        (e) => e.status === "pending",
+      );
       if (!entry) break;
 
       try {
-        patchEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
+        patchEntry(entry.id, {
+          status: "uploading",
+          progress: 0,
+          error: undefined,
+        });
 
         const presign = await apiClient.presign({
           fileName: entry.file.name,
@@ -101,9 +206,17 @@ function UploadPage() {
         });
 
         patchEntry(entry.id, { status: "done" });
-        toast.success(`${entry.file.name} — done.`);
+
+        // Persist to sessionStorage so iOS page suspension won't lose it
+        const doneEntry = entriesRef.current.find((e) => e.id === entry.id);
+        if (doneEntry) saveDoneRecord(doneEntry);
+
+        toast.success(`${entry.file.name} -- done.`);
       } catch (err) {
-        const msg = err instanceof ApiError ? err.message : "Upload failed. Please try again.";
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : "Upload failed. Please try again.";
         patchEntry(entry.id, { status: "error", error: msg });
         toast.error(`${entry.file.name}: ${msg}`);
       }
@@ -112,6 +225,10 @@ function UploadPage() {
     processingRef.current = false;
     await queryClient.invalidateQueries({ queryKey: ["documents"] });
   }, [patchEntry, queryClient]);
+
+  // ---------------------------------------------------------------------------
+  // File addition
+  // ---------------------------------------------------------------------------
 
   const addFiles = useCallback(
     (files: FileList | File[]) => {
@@ -122,49 +239,112 @@ function UploadPage() {
           toast.error(`${file.name}: ${err}`);
           return;
         }
-        const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+        // Deduplicate: skip if a file with same name+size is already present
+        const isDuplicate = entriesRef.current.some(
+          (e) => e.file.name === file.name && e.file.size === file.size,
+        );
+        if (isDuplicate) {
+          toast.info(`${file.name} is already in the list.`);
+          return;
+        }
+        const previewUrl = file.type.startsWith("image/")
+          ? URL.createObjectURL(file)
+          : undefined;
         if (previewUrl) previewUrlsRef.current.add(previewUrl);
-        toAdd.push({ file, id: crypto.randomUUID(), status: "pending", progress: 0, previewUrl });
+        toAdd.push({
+          file,
+          id: crypto.randomUUID(),
+          status: "pending",
+          progress: 0,
+          previewUrl,
+        });
       });
       if (!toAdd.length) return;
 
-      // Update ref immediately so the queue loop sees the new files right away
-      entriesRef.current = [...entriesRef.current, ...toAdd];
-      setEntries((prev) => [...prev, ...toAdd]);
-      toast.success(toAdd.length === 1 ? "1 file added — uploading…" : `${toAdd.length} files added — uploading…`);
+      syncSetEntries((prev) => [...prev, ...toAdd]);
+      toast.success(
+        toAdd.length === 1
+          ? "1 file added -- uploading..."
+          : `${toAdd.length} files added -- uploading...`,
+      );
+      // Kick the queue (no-op if already running)
       startQueue();
     },
-    [startQueue],
+    [startQueue, syncSetEntries],
   );
 
-  const removeEntry = useCallback((id: string) => {
-    setEntries((prev) => {
-      const t = prev.find((e) => e.id === id);
-      if (t?.previewUrl) {
-        URL.revokeObjectURL(t.previewUrl);
-        previewUrlsRef.current.delete(t.previewUrl);
-      }
-      const next = prev.filter((e) => e.id !== id);
-      entriesRef.current = next;
-      return next;
-    });
-  }, []);
+  // ---------------------------------------------------------------------------
+  // Remove & retry
+  // ---------------------------------------------------------------------------
 
-  const running = entries.some((e) => e.status === "uploading" || e.status === "processing");
-  const doneCount = entries.filter((e) => e.status === "done").length;
-  const allDone = entries.length > 0 && entries.every((e) => e.status === "done");
+  const removeEntry = useCallback(
+    (id: string) => {
+      syncSetEntries((prev) => {
+        const t = prev.find((e) => e.id === id);
+        if (t?.previewUrl) {
+          URL.revokeObjectURL(t.previewUrl);
+          previewUrlsRef.current.delete(t.previewUrl);
+        }
+        return prev.filter((e) => e.id !== id);
+      });
+    },
+    [syncSetEntries],
+  );
+
+  const retryEntry = useCallback(
+    (id: string) => {
+      patchEntry(id, { status: "pending", error: undefined });
+      // Must kick the queue — it may have stopped after the error
+      startQueue();
+    },
+    [patchEntry, startQueue],
+  );
+
+  const clearAll = useCallback(() => {
+    entries.forEach((e) => {
+      if (e.previewUrl) {
+        URL.revokeObjectURL(e.previewUrl);
+        previewUrlsRef.current.delete(e.previewUrl);
+      }
+    });
+    syncSetEntries(() => []);
+    setRestoredDone([]);
+    clearDoneRecords();
+  }, [entries, syncSetEntries]);
+
+  // ---------------------------------------------------------------------------
+  // Derived state
+  // ---------------------------------------------------------------------------
+
+  const running = entries.some(
+    (e) => e.status === "uploading" || e.status === "processing",
+  );
+  const doneCount =
+    entries.filter((e) => e.status === "done").length + restoredDone.length;
+  const totalCount = entries.length + restoredDone.length;
+  const allDone =
+    totalCount > 0 &&
+    entries.every((e) => e.status === "done") &&
+    restoredDone.every((r) => r.status === "done");
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Upload documents</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          Upload documents
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add lab reports, imaging summaries, or visit notes (PDF, JPG, or PNG · max 20MB).
-          Files upload automatically as soon as you select them.
+          Add lab reports, imaging summaries, or visit notes (PDF, JPG, or PNG
+          -- max 20 MB). Files upload automatically as soon as you select them.
         </p>
       </div>
 
       <Card className="p-6">
+        {/* Drop zone — always clickable, even while uploading */}
         <div
           role="button"
           tabIndex={0}
@@ -195,10 +375,13 @@ function UploadPage() {
             )}
           </span>
           <p className="text-sm font-medium text-foreground">
-            {running ? "Uploading… click to queue more files" : "Drag & drop files here, or click to browse"}
+            {running
+              ? "Uploading... click to queue more files"
+              : "Drag & drop files here, or click to browse"}
           </p>
           <p className="text-xs text-muted-foreground">
-            PDF, JPG, or PNG · max 20MB · select multiple at once or click again to add more
+            PDF, JPG, or PNG -- max 20 MB -- select multiple at once or click
+            again to add more
           </p>
           <input
             ref={inputRef}
@@ -208,32 +391,25 @@ function UploadPage() {
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) addFiles(e.target.files);
+              // Reset so re-selecting the same file triggers onChange again
               e.target.value = "";
             }}
           />
         </div>
 
-        {entries.length > 0 && (
+        {/* File list */}
+        {(entries.length > 0 || restoredDone.length > 0) && (
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between gap-3 text-sm">
               <p className="font-medium text-foreground">
                 {running
-                  ? `Uploading… (${doneCount} of ${entries.length} done)`
-                  : `${entries.length} ${entries.length === 1 ? "file" : "files"}`}
+                  ? `Uploading... (${doneCount} of ${totalCount} done)`
+                  : `${totalCount} ${totalCount === 1 ? "file" : "files"}`}
               </p>
               {!running && (
                 <button
                   type="button"
-                  onClick={() => {
-                    entries.forEach((e) => {
-                      if (e.previewUrl) {
-                        URL.revokeObjectURL(e.previewUrl);
-                        previewUrlsRef.current.delete(e.previewUrl);
-                      }
-                    });
-                    entriesRef.current = [];
-                    setEntries([]);
-                  }}
+                  onClick={clearAll}
                   className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
                 >
                   Clear all
@@ -242,40 +418,83 @@ function UploadPage() {
             </div>
 
             <ul className="space-y-2">
+              {/* Restored done records (from sessionStorage / iOS recovery) */}
+              {restoredDone.map((record) => (
+                <li
+                  key={record.id}
+                  className="rounded-lg border border-border bg-muted/40 px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+                      <FileText className="h-5 w-5 text-muted-foreground" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {record.name}
+                        </p>
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {formatSize(record.size)} -- Done
+                      </p>
+                    </div>
+                  </div>
+                </li>
+              ))}
+
+              {/* Active entries */}
               {entries.map((entry) => (
-                <li key={entry.id} className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+                <li
+                  key={entry.id}
+                  className="rounded-lg border border-border bg-muted/40 px-4 py-3"
+                >
                   <div className="flex items-center gap-3">
                     <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
                       {entry.previewUrl ? (
-                        <img src={entry.previewUrl} alt="" className="h-full w-full object-cover" />
+                        <img
+                          src={entry.previewUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
                         <FileText className="h-5 w-5 text-muted-foreground" />
                       )}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-2">
-                        <p className="truncate text-sm font-medium text-foreground">{entry.file.name}</p>
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {entry.file.name}
+                        </p>
                         {entry.status === "done" && (
                           <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
                         )}
                         {entry.status === "error" && (
                           <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
                         )}
-                        {(entry.status === "uploading" || entry.status === "processing") && (
+                        {(entry.status === "uploading" ||
+                          entry.status === "processing") && (
                           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {formatSize(entry.file.size)}
-                        {entry.status === "pending" && " · Waiting…"}
-                        {entry.status === "uploading" && ` · Uploading ${entry.progress}%`}
-                        {entry.status === "processing" && " · Analyzing with AI…"}
-                        {entry.status === "done" && " · Done"}
+                        {entry.status === "pending" && " -- Waiting..."}
+                        {entry.status === "uploading" &&
+                          ` -- Uploading ${entry.progress}%`}
+                        {entry.status === "processing" &&
+                          " -- Analyzing with AI..."}
+                        {entry.status === "done" && " -- Done"}
                         {entry.status === "error" && (
-                          <span className="text-destructive"> · {entry.error ?? "Failed"}</span>
+                          <span className="text-destructive">
+                            {" "}
+                            -- {entry.error ?? "Failed"}
+                          </span>
                         )}
                       </p>
                     </div>
+
+                    {/* Remove button for pending files */}
                     {entry.status === "pending" && (
                       <button
                         type="button"
@@ -286,12 +505,15 @@ function UploadPage() {
                         <X className="h-4 w-4" />
                       </button>
                     )}
+
+                    {/* Retry button for failed files */}
                     {entry.status === "error" && (
                       <button
                         type="button"
-                        onClick={() => patchEntry(entry.id, { status: "pending", error: undefined })}
-                        className="rounded-md px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                        onClick={() => retryEntry(entry.id)}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
                       >
+                        <RotateCcw className="h-3 w-3" />
                         Retry
                       </button>
                     )}
