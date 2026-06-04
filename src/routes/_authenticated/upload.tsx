@@ -136,10 +136,18 @@ function UploadPage() {
     // API Gateway has a 29s timeout, so parallel calls would race and fail.
     let anyError = false;
     // Diagnostic: detect when the backend hands back the same storage key or
-    // documentId for different files. If it does, each upload overwrites the
-    // previous one in storage — which looks like "only one file uploaded".
-    const seenIds = new Map<string, string>();
-    const seenKeys = new Map<string, string>();
+    // documentId for different files. Include completed entries too, because
+    // users often add files in separate browse/drop actions.
+    const seenIds = new Map(
+      entries
+        .filter((entry) => entry.documentId)
+        .map((entry) => [entry.documentId as string, entry.file.name]),
+    );
+    const seenKeys = new Map(
+      entries
+        .filter((entry) => entry.storageKey)
+        .map((entry) => [entry.storageKey as string, entry.file.name]),
+    );
     let collisionDetected = false;
 
     for (const entry of pending) {
@@ -188,7 +196,11 @@ function UploadPage() {
           fileName: entry.uploadName,
         });
 
-        updateEntry(entry.id, { status: "done" });
+        updateEntry(entry.id, {
+          status: "done",
+          documentId: presign.documentId,
+          storageKey: presign.key,
+        });
       } catch (err) {
         anyError = true;
         const message =
