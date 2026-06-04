@@ -165,6 +165,7 @@ function UploadPage() {
           documentId: presign.documentId,
           key: presign.key,
         });
+        toast.info(`Uploading ${entry.file.name}`);
 
         const idOwner = seenIds.get(presign.documentId);
         const keyOwner = seenKeys.get(presign.key);
@@ -201,6 +202,7 @@ function UploadPage() {
           documentId: presign.documentId,
           storageKey: presign.key,
         });
+        toast.success(`${entry.file.name} uploaded and analyzed.`);
       } catch (err) {
         anyError = true;
         const message =
