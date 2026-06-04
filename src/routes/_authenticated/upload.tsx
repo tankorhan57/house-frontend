@@ -219,26 +219,55 @@ function UploadPage() {
         </div>
 
         {entries.length > 0 && (
-          <ul className="mt-4 space-y-2">
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <p className="font-medium text-foreground">
+                {entries.length} {entries.length === 1 ? "file" : "files"} selected
+              </p>
+              {!running && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    entries.forEach((entry) => {
+                      if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+                    });
+                    setEntries([]);
+                  }}
+                  className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+            <ul className="space-y-2">
             {entries.map((entry) => (
               <li
                 key={entry.id}
                 className="rounded-lg border border-border bg-muted/40 px-4 py-3"
               >
                 <div className="flex items-center gap-3">
-                  <span className="shrink-0">
-                    {entry.status === "done" ? (
-                      <CheckCircle2 className="h-4 w-4 text-routine" />
-                    ) : entry.status === "error" ? (
-                      <AlertCircle className="h-4 w-4 text-destructive" />
-                    ) : entry.status === "uploading" || entry.status === "processing" ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+                    {entry.previewUrl ? (
+                      <img
+                        src={entry.previewUrl}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
-                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <FileText className="h-5 w-5 text-muted-foreground" />
                     )}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{entry.file.name}</p>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="truncate text-sm font-medium text-foreground">{entry.file.name}</p>
+                      {entry.status === "done" ? (
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-routine" />
+                      ) : entry.status === "error" ? (
+                        <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                      ) : entry.status === "uploading" || entry.status === "processing" ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+                      ) : null}
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {formatSize(entry.file.size)}
                       {entry.status === "uploading" && ` · Uploading ${entry.progress}%`}
@@ -263,7 +292,8 @@ function UploadPage() {
                 )}
               </li>
             ))}
-          </ul>
+            </ul>
+          </div>
         )}
 
         <Button
