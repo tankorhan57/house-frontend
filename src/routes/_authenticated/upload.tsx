@@ -28,15 +28,17 @@ interface FileEntry {
   status: FileStatus;
   progress: number;
   previewUrl?: string;
+  documentId?: string;
+  storageKey?: string;
   error?: string;
 }
 
-function uniqueUploadName(fileName: string, id: string) {
-  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+function uniqueUploadName(file: File, id: string) {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const dotIndex = safeName.lastIndexOf(".");
-  const suffix = id.slice(0, 8);
-  if (dotIndex <= 0) return `${safeName}-${suffix}`;
-  return `${safeName.slice(0, dotIndex)}-${suffix}${safeName.slice(dotIndex)}`;
+  const uniquePrefix = `upload_${Date.now()}_${file.lastModified}_${file.size}_${id.replace(/-/g, "")}`;
+  if (dotIndex <= 0) return `${uniquePrefix}_${safeName}`;
+  return `${uniquePrefix}_${safeName.slice(0, dotIndex)}${safeName.slice(dotIndex)}`;
 }
 
 function validate(file: File): string | null {
@@ -90,7 +92,7 @@ function UploadPage() {
       newEntries.push({
         file,
         id,
-        uploadName: uniqueUploadName(file.name, id),
+        uploadName: uniqueUploadName(file, id),
         status: "pending",
         progress: 0,
         previewUrl,
