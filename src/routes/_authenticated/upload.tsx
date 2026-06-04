@@ -24,10 +24,19 @@ type FileStatus = "pending" | "uploading" | "processing" | "done" | "error";
 interface FileEntry {
   file: File;
   id: string;
+  uploadName: string;
   status: FileStatus;
   progress: number;
   previewUrl?: string;
   error?: string;
+}
+
+function uniqueUploadName(fileName: string, id: string) {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const dotIndex = safeName.lastIndexOf(".");
+  const suffix = id.slice(0, 8);
+  if (dotIndex <= 0) return `${safeName}-${suffix}`;
+  return `${safeName.slice(0, dotIndex)}-${suffix}${safeName.slice(dotIndex)}`;
 }
 
 function validate(file: File): string | null {
@@ -77,9 +86,11 @@ function UploadPage() {
       }
       const previewUrl = isImage(file) ? URL.createObjectURL(file) : undefined;
       if (previewUrl) previewUrlsRef.current.add(previewUrl);
+      const id = crypto.randomUUID();
       newEntries.push({
         file,
-        id: crypto.randomUUID(),
+        id,
+        uploadName: uniqueUploadName(file.name, id),
         status: "pending",
         progress: 0,
         previewUrl,
@@ -133,13 +144,14 @@ function UploadPage() {
       try {
         updateEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
         const presign = await apiClient.presign({
-          fileName: entry.file.name,
+          fileName: entry.uploadName,
           fileType: entry.file.type,
           fileSize: entry.file.size,
         });
 
         console.info("[upload] presign result", {
           file: entry.file.name,
+          uploadName: entry.uploadName,
           documentId: presign.documentId,
           key: presign.key,
         });
@@ -171,7 +183,7 @@ function UploadPage() {
         await apiClient.process({
           documentId: presign.documentId,
           key: presign.key,
-          fileName: entry.file.name,
+          fileName: entry.uploadName,
         });
 
         updateEntry(entry.id, { status: "done" });
