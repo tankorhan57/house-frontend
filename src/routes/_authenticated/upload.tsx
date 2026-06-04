@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { UploadCloud, FileText, Loader2, X, CheckCircle2 } from "lucide-react";
+import { UploadCloud, FileText, Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { apiClient, uploadToPresignedUrl, ApiError } from "@/lib/api";
 import { Disclaimer } from "@/components/disclaimer";
 import { Card } from "@/components/ui/card";
@@ -18,20 +18,22 @@ const MAX_SIZE = 20 * 1024 * 1024; // 20MB
 const ACCEPTED = ["application/pdf", "image/jpeg", "image/png"];
 const ACCEPT_ATTR = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
 
-type Stage = "idle" | "uploading" | "processing" | "done";
+type FileStatus = "pending" | "uploading" | "processing" | "done" | "error";
 
-const STAGE_LABEL: Record<Exclude<Stage, "idle">, string> = {
-  uploading: "Securely uploading your document…",
-  processing: "Reading and explaining your document…",
-  done: "All done! Redirecting…",
-};
+interface FileEntry {
+  file: File;
+  id: string;
+  status: FileStatus;
+  progress: number;
+  error?: string;
+}
 
 function validate(file: File): string | null {
   if (!ACCEPTED.includes(file.type)) {
     return "Unsupported file type. Please upload a PDF, JPG, or PNG.";
   }
   if (file.size > MAX_SIZE) {
-    return "That file is larger than 20MB. Please upload a smaller file.";
+    return "File is larger than 20MB.";
   }
   return null;
 }
@@ -45,159 +47,216 @@ function UploadPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [stage, setStage] = useState<Stage>("idle");
-  const [progress, setProgress] = useState(0);
+  const [running, setRunning] = useState(false);
 
-  const busy = stage === "uploading" || stage === "processing" || stage === "done";
+  const updateEntry = (id: string, patch: Partial<FileEntry>) =>
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
 
-  const selectFile = useCallback((f: File) => {
-    const err = validate(f);
-    if (err) {
-      toast.error(err);
-      return;
-    }
-    setFile(f);
+  const addFiles = useCallback((files: FileList | File[]) => {
+    const newEntries: FileEntry[] = [];
+    Array.from(files).forEach((file) => {
+      const err = validate(file);
+      if (err) {
+        toast.error(`${file.name}: ${err}`);
+        return;
+      }
+      newEntries.push({ file, id: crypto.randomUUID(), status: "pending", progress: 0 });
+    });
+    if (newEntries.length) setEntries((prev) => [...prev, ...newEntries]);
   }, []);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      if (busy) return;
-      const f = e.dataTransfer.files?.[0];
-      if (f) selectFile(f);
+      if (running) return;
+      if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
     },
-    [busy, selectFile],
+    [running, addFiles],
   );
 
+  const removeEntry = (id: string) =>
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+
   const handleUpload = async () => {
-    if (!file) return;
-    try {
-      setProgress(0);
-      setStage("uploading");
-      const presign = await apiClient.presign({
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-      });
+    const pending = entries.filter((e) => e.status === "pending" || e.status === "error");
+    if (!pending.length) return;
 
-      await uploadToPresignedUrl(presign.uploadUrl, file, setProgress);
+    setRunning(true);
 
-      setStage("processing");
-      await apiClient.process({
-        documentId: presign.documentId,
-        key: presign.key,
-        fileName: file.name,
-      });
+    let anyError = false;
+    for (const entry of pending) {
+      try {
+        updateEntry(entry.id, { status: "uploading", progress: 0, error: undefined });
+        const presign = await apiClient.presign({
+          fileName: entry.file.name,
+          fileType: entry.file.type,
+          fileSize: entry.file.size,
+        });
 
-      setStage("done");
-      await queryClient.invalidateQueries({ queryKey: ["documents"] });
-      toast.success("Your document is ready.");
-      navigate({ to: "/document/$id", params: { id: presign.documentId } });
-    } catch (err) {
-      setStage("idle");
-      setProgress(0);
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : "Something went wrong during upload. Please try again.";
-      toast.error(message);
+        await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
+          updateEntry(entry.id, { progress: pct }),
+        );
+
+        updateEntry(entry.id, { status: "processing", progress: 100 });
+        await apiClient.process({
+          documentId: presign.documentId,
+          key: presign.key,
+          fileName: entry.file.name,
+        });
+
+        updateEntry(entry.id, { status: "done" });
+      } catch (err) {
+        anyError = true;
+        const message =
+          err instanceof ApiError ? err.message : "Upload failed. Please try again.";
+        updateEntry(entry.id, { status: "error", error: message });
+        toast.error(`${entry.file.name}: ${message}`);
+      }
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ["documents"] });
+    setRunning(false);
+
+    if (!anyError) {
+      toast.success(
+        pending.length === 1 ? "Your document is ready." : `${pending.length} documents ready.`,
+      );
+      navigate({ to: "/" });
     }
   };
+
+  const pendingCount = entries.filter(
+    (e) => e.status === "pending" || e.status === "error",
+  ).length;
+  const allDone = entries.length > 0 && entries.every((e) => e.status === "done");
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Upload a document</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Upload documents</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add a lab report, imaging summary, or visit note (PDF, JPG, or PNG up to 20MB).
+          Add lab reports, imaging summaries, or visit notes (PDF, JPG, or PNG up to 20MB each).
         </p>
       </div>
 
-      {busy ? (
-        <Card className="flex flex-col items-center gap-4 p-12 text-center">
-          {stage === "done" ? (
-            <CheckCircle2 className="h-10 w-10 text-routine" />
-          ) : (
-            <Loader2 className="h-10 w-10 animate-spin text-accent" />
+      <Card className="p-6">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => !running && inputRef.current?.click()}
+          onKeyDown={(e) => {
+            if ((e.key === "Enter" || e.key === " ") && !running) inputRef.current?.click();
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!running) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={cn(
+            "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors",
+            dragging && "border-accent bg-accent/5",
+            running && "pointer-events-none opacity-50",
           )}
-          <p className="text-sm font-medium text-foreground">{STAGE_LABEL[stage]}</p>
-          {stage === "uploading" && (
-            <div className="w-full max-w-xs space-y-1">
-              <Progress value={progress} />
-              <p className="text-xs text-muted-foreground">{progress}%</p>
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            This can take a moment. Please keep this page open.
+        >
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-accent">
+            <UploadCloud className="h-7 w-7" />
+          </span>
+          <p className="text-sm font-medium text-foreground">
+            Drag &amp; drop files here, or click to browse
           </p>
-        </Card>
-      ) : (
-        <Card className="p-6">
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => inputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+          <p className="text-xs text-muted-foreground">
+            PDF, JPG, or PNG · max 20MB · multiple files supported
+          </p>
+          <input
+            ref={inputRef}
+            type="file"
+            accept={ACCEPT_ATTR}
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.length) addFiles(e.target.files);
+              e.target.value = "";
             }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            className={cn(
-              "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border px-6 py-12 text-center transition-colors",
-              dragging && "border-accent bg-accent/5",
-            )}
-          >
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-accent">
-              <UploadCloud className="h-7 w-7" />
-            </span>
-            <p className="text-sm font-medium text-foreground">
-              Drag &amp; drop your file here, or click to browse
-            </p>
-            <p className="text-xs text-muted-foreground">PDF, JPG, or PNG · max 20MB</p>
-            <input
-              ref={inputRef}
-              type="file"
-              accept={ACCEPT_ATTR}
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) selectFile(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
+          />
+        </div>
 
-          {file && (
-            <div className="mt-4 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
-              <FileText className="h-5 w-5 shrink-0 text-accent" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
-                <p className="text-xs text-muted-foreground">{formatSize(file.size)}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setFile(null)}
-                className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                aria-label="Remove file"
+        {entries.length > 0 && (
+          <ul className="mt-4 space-y-2">
+            {entries.map((entry) => (
+              <li
+                key={entry.id}
+                className="rounded-lg border border-border bg-muted/40 px-4 py-3"
               >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
+                <div className="flex items-center gap-3">
+                  <span className="shrink-0">
+                    {entry.status === "done" ? (
+                      <CheckCircle2 className="h-4 w-4 text-routine" />
+                    ) : entry.status === "error" ? (
+                      <AlertCircle className="h-4 w-4 text-destructive" />
+                    ) : entry.status === "uploading" || entry.status === "processing" ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                    ) : (
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{entry.file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatSize(entry.file.size)}
+                      {entry.status === "uploading" && ` · Uploading ${entry.progress}%`}
+                      {entry.status === "processing" && " · Analyzing…"}
+                      {entry.status === "done" && " · Done"}
+                      {entry.status === "error" && ` · ${entry.error ?? "Failed"}`}
+                    </p>
+                  </div>
+                  {(entry.status === "pending" || entry.status === "error") && !running && (
+                    <button
+                      type="button"
+                      onClick={() => removeEntry(entry.id)}
+                      className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      aria-label="Remove file"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {entry.status === "uploading" && (
+                  <Progress value={entry.progress} className="mt-2 h-1" />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
 
-          <Button className="mt-4 w-full" disabled={!file} onClick={handleUpload}>
-            <UploadCloud className="h-4 w-4" />
-            Upload &amp; analyze
-          </Button>
-        </Card>
-      )}
+        <Button
+          className="mt-4 w-full"
+          disabled={pendingCount === 0 || running}
+          onClick={handleUpload}
+        >
+          {running ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Processing…
+            </>
+          ) : allDone ? (
+            <>
+              <CheckCircle2 className="h-4 w-4" />
+              All done
+            </>
+          ) : (
+            <>
+              <UploadCloud className="h-4 w-4" />
+              {pendingCount > 1
+                ? `Upload & analyze ${pendingCount} files`
+                : "Upload & analyze"}
+            </>
+          )}
+        </Button>
+      </Card>
 
       <Disclaimer />
     </div>
