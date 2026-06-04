@@ -1,23 +1,22 @@
-  import { useCallback, useEffect, useRef, useState } from "react";
-  import { createFileRoute } from "@tanstack/react-router";
-  import { useQueryClient } from "@tanstack/react-query";
-  import { toast } from "sonner";
-  import { UploadCloud, FileText, Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
-  import { apiClient, uploadToPresignedUrl, ApiError } from "@/lib/api";
-  import { Link } from "@tanstack/react-router";
-  import { Disclaimer } from "@/components/disclaimer";
-  import { Card } from "@/components/ui/card";
-  import { Button } from "@/components/ui/button";
-  import { Progress } from "@/components/ui/progress";
-  import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { UploadCloud, FileText, Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { apiClient, uploadToPresignedUrl, ApiError } from "@/lib/api";
+import { Disclaimer } from "@/components/disclaimer";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 
   export const Route = createFileRoute("/_authenticated/upload")({
     component: UploadPage,
   });
 
-  const MAX_SIZE = 20 * 1024 * 1024;
-  const ACCEPTED = ["application/pdf", "image/jpeg", "image/png"];
-const ACCEPT_ATTR = "application/pdf,image/jpeg,image/png";  
+const MAX_SIZE = 20 * 1024 * 1024;
+const ACCEPTED = ["application/pdf", "image/jpeg", "image/png"];
+const ACCEPT_ATTR = "application/pdf,image/jpeg,image/png";
   type FileStatus = "pending" | "uploading" | "processing" | "done" | "error";
 
   interface FileEntry {
