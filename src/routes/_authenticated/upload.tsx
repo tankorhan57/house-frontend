@@ -17,8 +17,7 @@
 
   const MAX_SIZE = 20 * 1024 * 1024;
   const ACCEPTED = ["application/pdf", "image/jpeg", "image/png"];
-  const ACCEPT_ATTR = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
-
+const ACCEPT_ATTR = "application/pdf,image/jpeg,image/png";  
   type FileStatus = "pending" | "uploading" | "processing" | "done" | "error";
 
   interface FileEntry {
@@ -127,7 +126,8 @@
             onDragOver={(e) => { e.preventDefault(); if (!running) setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={(e) => { e.preventDefault(); setDragging(false); if (!running && e.dataTransfer.files?.length) appendFiles(e.dataTransfer.files); }}
-            className={cn("flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors", dragging && "border-accent bg-accent/5", running && "pointer-events-none opacity-50")}
+            className={cn("flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors", dragging && "border-accent
+   bg-accent/5", running && "pointer-events-none opacity-50")}
           >
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-accent">
               <UploadCloud className="h-7 w-7" />
@@ -183,7 +183,8 @@
 
           <div className="mt-4 flex gap-2">
             <Button className="flex-1" disabled={pendingCount === 0 || running} onClick={handleUpload}>
-              {running ? <><Loader2 className="h-4 w-4 animate-spin" />Processing…</> : <><UploadCloud className="h-4 w-4" />{pendingCount > 1 ? `Upload & analyze ${pendingCount} files` : "Upload & analyze"}</>}
+              {running ? <><Loader2 className="h-4 w-4 animate-spin" />Processing…</> : <><UploadCloud className="h-4 w-4" />{pendingCount > 1 ? `Upload & analyze ${pendingCount} files` : "Upload &
+  analyze"}</>}
             </Button>
             {allDone && (
               <Button asChild variant="outline">
