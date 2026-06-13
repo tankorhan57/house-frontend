@@ -102,9 +102,8 @@ function UploadPage() {
               ),
             );
             const presign = await apiClient.presign({
-              fileName: entry.file.name,
-              fileType: entry.file.type,
-              fileSize: entry.file.size,
+              filename: entry.file.name,
+              contentType: entry.file.type,
             });
             await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
               setEntries((p) => p.map((e) => (e.id === entry.id ? { ...e, progress: pct } : e))),
@@ -114,8 +113,7 @@ function UploadPage() {
             );
             await apiClient.process({
               documentId: presign.documentId,
-              key: presign.key,
-              fileName: entry.file.name,
+              s3Key: presign.s3Key,
             });
             setEntries((p) => p.map((e) => (e.id === entry.id ? { ...e, status: "done" } : e)));
           } catch (err) {
