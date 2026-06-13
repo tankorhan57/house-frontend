@@ -2,7 +2,6 @@ import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/
 import {
   LayoutGrid,
   Upload,
-  LineChart,
   Settings,
   UserRound,
   House as HouseIcon,
@@ -11,6 +10,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { OnboardingModal } from "@/components/onboarding-modal";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -27,7 +27,6 @@ export const Route = createFileRoute("/_authenticated")({
 const NAV = [
   { to: "/", label: "Documents", icon: LayoutGrid },
   { to: "/upload", label: "Upload", icon: Upload },
-  { to: "/trends", label: "Trends", icon: LineChart },
   { to: "/profile", label: "Profile", icon: UserRound },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
