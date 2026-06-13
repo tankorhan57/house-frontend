@@ -33,6 +33,7 @@ const NAV = [
 
 function AuthenticatedLayout() {
   const navigate = useNavigate();
+  const { user } = Route.useRouteContext();
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -41,6 +42,7 @@ function AuthenticatedLayout() {
 
   return (
     <div className="min-h-screen bg-background">
+      {user?.id && <OnboardingModal userId={user.id} />}
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
@@ -79,7 +81,7 @@ function AuthenticatedLayout() {
 
       {/* Bottom nav (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur sm:hidden">
-        <div className="mx-auto grid max-w-5xl grid-cols-5">
+        <div className="mx-auto grid max-w-5xl grid-cols-4">
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
