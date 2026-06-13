@@ -131,7 +131,7 @@ export interface TrendResponse {
 export interface PresignResponse {
   uploadUrl: string;
   documentId: string;
-  s3Key: string;
+  key: string;
 }
 
 export interface ProcessResponse {
@@ -181,7 +181,7 @@ export const apiClient = {
   presign: (payload: { fileName: string; fileType: string; fileSize: number }) =>
     api<PresignResponse>("/presign", { method: "POST", body: payload }),
 
-  process: (payload: { documentId: string; s3Key: string }) =>
+  process: (payload: { documentId: string; key: string; fileName: string }) =>
     api<ProcessResponse>("/process", { method: "POST", body: payload, timeoutMs: 120_000 }),
 
   /* Insights */
