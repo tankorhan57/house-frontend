@@ -1,24 +1,35 @@
+## Goal
+
+Resolve the "Bloodwork.pdf: documentId and key are required" error seen on the **published** site (`your-doc-haven.lovable.app/upload`).
+
+## What's already true
+
+The current **preview** code already sends the correct fields. In `src/routes/_authenticated/upload.tsx` the process step is:
+
+```ts
+const presign = await apiClient.presign({ fileName, fileType, fileSize });
+await uploadToPresignedUrl(presign.uploadUrl, file, onProgress);
+await apiClient.process({
+  documentId: presign.documentId,
+  key: presign.key,
+  fileName: file.name,
+});
+```
+
+And `presign` returns `{ uploadUrl, documentId, key }` per your spec. This is the fix from our last change. The published build predates it, which is exactly why the live site still errors with "documentId and key are required."
+
 ## Plan
 
-1. **Reproduce the upload flow**
-   - Use the preview to verify whether selecting multiple images displays one row or multiple rows before upload.
-   - Check network calls during a multi-file upload to confirm whether the app sends one `presign/process` pair or one pair per file.
+1. **Verify in preview first**
+   - Sign in on the preview URL and upload a test PDF.
+   - Confirm `/presign` returns `documentId` + `key`, the S3 PUT succeeds, and `/process` is called with all three fields and returns success (no "documentId and key are required" error).
+   - If preview reproduces the error, the presign response shape differs from the spec — I'll inspect the actual response and adjust how `documentId`/`key` are read before doing anything else.
 
-2. **Fix the upload queue behavior**
-   - Keep the existing backend calls unchanged: `apiClient.presign()`, `uploadToPresignedUrl()`, and `apiClient.process()`.
-   - Make the file picker and drag/drop handler always append every selected file to the existing queue instead of replacing the prior selection.
-   - Ensure each queued file has its own stable ID, preview thumbnail, remove button, progress, status, and error state.
+2. **If preview works, publish**
+   - Push the current build live so the published site picks up the corrected `/process` payload.
+   - Confirm the same upload on the published URL succeeds afterward.
 
-3. **Fix the post-upload document list if needed**
-   - If the upload queue shows all files but the dashboard only shows one, inspect the list rendering and keying.
-   - Adjust the document list so multiple uploaded records are visible instead of collapsing/replacing when returned data has duplicate or unstable IDs.
+## Notes
 
-4. **Validate the result**
-   - Confirm the upload page shows all selected images/files at once.
-   - Confirm upload runs once per queued file and does not auto-navigate away.
-   - Confirm the documents page can display multiple uploaded items after completion.
-
-## Technical notes
-
-- I will only touch the upload UI/listing code unless diagnostics show the frontend list is hiding successfully uploaded records.
-- I will not change `src/lib/api.ts` or the API method signatures.
+- No code change is expected if preview verifies cleanly — this is primarily a publish to ship the existing fix.
+- The only scenario requiring a code edit is if `/presign` actually nests `documentId`/`key` (e.g. under a `fields` object) rather than returning them at the top level; in that case I'll update the read path in `upload.tsx` / `api.ts`.
