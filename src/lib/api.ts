@@ -131,7 +131,7 @@ export interface TrendResponse {
 export interface PresignResponse {
   uploadUrl: string;
   documentId: string;
-  key: string;
+  s3Key: string;
 }
 
 export interface ProcessResponse {
@@ -140,23 +140,70 @@ export interface ProcessResponse {
   documentId?: string;
 }
 
+export interface Insight {
+  biomarker: string;
+  message: string;
+  severity?: string;
+  direction?: string;
+  value?: string | number;
+  unit?: string;
+  reference_range?: string;
+  created_at?: string;
+}
+
+export interface ScoreResponse {
+  score: number;
+  summary?: string;
+  factors?: { label: string; impact?: string; detail?: string }[];
+}
+
+export interface Profile {
+  age?: number | null;
+  sex?: string | null;
+  chronic_conditions?: string | null;
+  current_medications?: string | null;
+  allergies?: string | null;
+  lifestyle_notes?: string | null;
+}
+
 /* ---------------- API methods ---------------- */
 
 export const apiClient = {
+  /* Documents */
   listDocuments: () => api<MedicalDocument[]>("/documents"),
 
   getDocument: (id: string) => api<DocumentDetail>(`/documents/${id}`),
 
-  presign: (payload: { fileName: string; fileType: string; fileSize: number }) =>
+  deleteDocument: (id: string) =>
+    api<void>(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  /* Upload + processing */
+  presign: (payload: { filename: string; contentType: string }) =>
     api<PresignResponse>("/presign", { method: "POST", body: payload }),
 
-  process: (payload: { documentId: string; key: string; fileName: string }) =>
+  process: (payload: { documentId: string; s3Key: string }) =>
     api<ProcessResponse>("/process", { method: "POST", body: payload, timeoutMs: 120_000 }),
 
+  /* Insights */
+  getInsights: () => api<Insight[]>("/insights"),
 
+  dismissInsight: (payload: { biomarker: string; message: string }) =>
+    api<void>("/insights/dismiss", { method: "POST", body: payload }),
+
+  /* Health score */
+  getScore: () => api<ScoreResponse>("/score"),
+
+  /* Profile */
+  getProfile: () => api<Profile>("/profile"),
+
+  saveProfile: (payload: Profile) =>
+    api<Profile>("/profile", { method: "PUT", body: payload }),
+
+  /* Trends (existing helper used by the Trends page) */
   getTrend: (biomarker: string) =>
     api<TrendResponse>(`/trend?biomarker=${encodeURIComponent(biomarker)}`),
 
+  /* Account */
   deleteAccount: () => api<void>("/account", { method: "DELETE" }),
 };
 
