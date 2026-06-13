@@ -1,7 +1,8 @@
-import React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ArrowLeft,
   CalendarDays,
@@ -9,10 +10,7 @@ import {
   FileText,
   AlertCircle,
   ListChecks,
-  MessageCircleQuestion,
-  TrendingUp,
-  TrendingDown,
-  Minus,
+  Info,
 } from "lucide-react";
 import { apiClient, type AbnormalValue } from "@/lib/api";
 import { UrgencyBadge } from "@/components/urgency-badge";
@@ -26,75 +24,24 @@ export const Route = createFileRoute("/_authenticated/document/$id")({
   component: DocumentDetailPage,
 });
 
+const PROVIDER_NOTE = "Please discuss this with your healthcare provider.";
+
 function formatDate(value?: string) {
   if (!value) return "—";
   const d = new Date(value);
   return isNaN(d.getTime()) ? value : format(d, "MMMM d, yyyy");
 }
 
-/** Extract question-style sentences from the interpretation text. */
-function parseQuestions(interpretation?: string): string[] {
-  if (!interpretation) return [];
-  const matches = interpretation.match(/[^.?!\n]*\?/g) ?? [];
-  const cleaned = matches
-    .map((q) => q.replace(/^[\s\-*•:]+/, "").trim())
-    .filter((q) => q.length > 8);
-  return Array.from(new Set(cleaned)).slice(0, 8);
-}
-
-function DirectionIcon({ direction }: { direction?: string }) {
+/** Map a raw direction string to a readable status. */
+function statusFromDirection(direction?: string): { label: string; tone: string } {
   const d = (direction ?? "").toLowerCase();
   if (d.includes("high") || d.includes("up") || d === "h")
-    return <TrendingUp className="h-4 w-4 text-urgent" />;
+    return { label: "High", tone: "bg-urgent/15 text-urgent" };
   if (d.includes("low") || d.includes("down") || d === "l")
-    return <TrendingDown className="h-4 w-4 text-accent" />;
-  return <Minus className="h-4 w-4 text-muted-foreground" />;
-}
-
-/** Render a markdown string into React elements, handling bold, italic, lists, and hr. */
-function renderMarkdown(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  // Strip trailing doctor-questions block (already shown in structured card below)
-  const cleaned = text
-    .replace(/\*{0,2}5 Questions to Ask[^]*$/i, "")
-    .replace(/---\s*$/, "")
-    .trim();
-
-  const paragraphs = cleaned.split(/\n{2,}/);
-  paragraphs.forEach((para, pi) => {
-    if (/^---+$/.test(para.trim())) {
-      nodes.push(<hr key={pi} className="border-border" />);
-      return;
-    }
-    const lines = para.split("\n");
-    const listItems = lines.filter((l) => /^\s*[-*]\s/.test(l));
-    if (listItems.length === lines.length) {
-      nodes.push(
-        <ul key={pi} className="ml-4 space-y-1 list-disc">
-          {listItems.map((l, li) => (
-            <li key={li}>{inlineMarkdown(l.replace(/^\s*[-*]\s/, ""))}</li>
-          ))}
-        </ul>,
-      );
-    } else {
-      nodes.push(<p key={pi}>{lines.map((l, li) => [li > 0 && <br key={`br-${li}`} />, inlineMarkdown(l)])}</p>);
-    }
-  });
-  return nodes;
-}
-
-function inlineMarkdown(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  const re = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
-  let last = 0, m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[2] !== undefined) parts.push(<strong key={m.index}>{m[2]}</strong>);
-    else if (m[3] !== undefined) parts.push(<em key={m.index}>{m[3]}</em>);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts.length === 1 ? parts[0] : parts;
+    return { label: "Low", tone: "bg-accent/15 text-accent" };
+  if (d.includes("normal") || d === "n")
+    return { label: "Normal", tone: "bg-muted text-muted-foreground" };
+  return { label: direction || "Abnormal", tone: "bg-soon/20 text-soon-foreground" };
 }
 
 function DocumentDetailPage() {
@@ -136,7 +83,6 @@ function DocumentDetailPage() {
     );
   }
 
-  const questions = parseQuestions(data.interpretation);
   const abnormal: AbnormalValue[] = data.abnormal_values ?? [];
 
   return (
@@ -182,8 +128,25 @@ function DocumentDetailPage() {
       {data.interpretation && (
         <Card className="p-6">
           <h2 className="text-base font-semibold text-foreground">What this means</h2>
-          <div className="mt-3 space-y-3 text-sm leading-relaxed text-foreground/90">
-            {renderMarkdown(data.interpretation)}
+          <div
+            className={cn(
+              "mt-3 space-y-3 text-sm leading-relaxed text-foreground/90",
+              "[&_h1]:text-base [&_h1]:font-semibold [&_h1]:text-foreground",
+              "[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-foreground [&_h2]:mt-4",
+              "[&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-foreground",
+              "[&_ul]:ml-4 [&_ul]:list-disc [&_ul]:space-y-1",
+              "[&_ol]:ml-4 [&_ol]:list-decimal [&_ol]:space-y-1",
+              "[&_strong]:font-semibold [&_strong]:text-foreground",
+              "[&_a]:text-accent [&_a]:underline",
+              "[&_table]:w-full [&_table]:text-sm [&_th]:text-left [&_th]:font-medium [&_td]:py-1 [&_th]:py-1",
+              "[&_hr]:border-border",
+            )}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.interpretation}</ReactMarkdown>
+          </div>
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-2 text-xs font-medium text-foreground">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+            {PROVIDER_NOTE}
           </div>
         </Card>
       )}
@@ -219,58 +182,43 @@ function DocumentDetailPage() {
                   <th className="px-6 py-3 font-medium">Name</th>
                   <th className="px-3 py-3 font-medium">Value</th>
                   <th className="px-3 py-3 font-medium">Unit</th>
-                  <th className="px-3 py-3 font-medium">Reference range</th>
-                  <th className="px-6 py-3 text-center font-medium">Direction</th>
+                  <th className="px-3 py-3 font-medium">Reference Range</th>
+                  <th className="px-6 py-3 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {abnormal.map((row, i) => (
-                  <tr
-                    key={i}
-                    className={cn(
-                      "border-b border-border last:border-0",
-                      i % 2 === 1 && "bg-muted/40",
-                    )}
-                  >
-                    <td className="px-6 py-3 font-medium text-foreground">{row.name}</td>
-                    <td className="px-3 py-3 text-foreground">{row.value}</td>
-                    <td className="px-3 py-3 text-muted-foreground">{row.unit || "—"}</td>
-                    <td className="px-3 py-3 text-muted-foreground">
-                      {row.reference_range || "—"}
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className="flex items-center justify-center gap-1.5">
-                        <DirectionIcon direction={row.direction} />
-                        <span className="text-xs capitalize text-muted-foreground">
-                          {row.direction || "—"}
+                {abnormal.map((row, i) => {
+                  const status = statusFromDirection(row.direction);
+                  return (
+                    <tr
+                      key={i}
+                      className={cn(
+                        "border-b border-border last:border-0",
+                        i % 2 === 1 && "bg-muted/40",
+                      )}
+                    >
+                      <td className="px-6 py-3 font-medium text-foreground">{row.name}</td>
+                      <td className="px-3 py-3 text-foreground">{row.value}</td>
+                      <td className="px-3 py-3 text-muted-foreground">{row.unit || "—"}</td>
+                      <td className="px-3 py-3 text-muted-foreground">
+                        {row.reference_range || "—"}
+                      </td>
+                      <td className="px-6 py-3">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+                            status.tone,
+                          )}
+                        >
+                          {status.label}
                         </span>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </Card>
-      )}
-
-      {/* Questions to ask your doctor */}
-      {questions.length > 0 && (
-        <Card className="p-6">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
-            <MessageCircleQuestion className="h-4.5 w-4.5 text-accent" />
-            Questions to ask your doctor
-          </h2>
-          <ul className="mt-3 space-y-2.5">
-            {questions.map((q, i) => (
-              <li
-                key={i}
-                className="rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-foreground/90"
-              >
-                {q}
-              </li>
-            ))}
-          </ul>
         </Card>
       )}
 
