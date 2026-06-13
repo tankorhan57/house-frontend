@@ -178,7 +178,7 @@ export const apiClient = {
     api<void>(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   /* Upload + processing */
-  presign: (payload: { filename: string; contentType: string }) =>
+  presign: (payload: { fileName: string; fileType: string; fileSize: number }) =>
     api<PresignResponse>("/presign", { method: "POST", body: payload }),
 
   process: (payload: { documentId: string; s3Key: string }) =>

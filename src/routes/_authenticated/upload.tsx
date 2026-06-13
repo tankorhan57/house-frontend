@@ -102,8 +102,9 @@ function UploadPage() {
               ),
             );
             const presign = await apiClient.presign({
-              filename: entry.file.name,
-              contentType: entry.file.type,
+              fileName: entry.file.name,
+              fileType: entry.file.type,
+              fileSize: entry.file.size,
             });
             await uploadToPresignedUrl(presign.uploadUrl, entry.file, (pct) =>
               setEntries((p) => p.map((e) => (e.id === entry.id ? { ...e, progress: pct } : e))),
