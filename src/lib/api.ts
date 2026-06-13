@@ -131,7 +131,7 @@ export interface TrendResponse {
 export interface PresignResponse {
   uploadUrl: string;
   documentId: string;
-  s3Key: string;
+  key: string;
 }
 
 export interface ProcessResponse {
