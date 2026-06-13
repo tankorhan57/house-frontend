@@ -2,7 +2,6 @@ import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/
 import {
   LayoutGrid,
   Upload,
-  LineChart,
   Settings,
   UserRound,
   House as HouseIcon,
@@ -11,6 +10,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { OnboardingModal } from "@/components/onboarding-modal";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -27,13 +27,13 @@ export const Route = createFileRoute("/_authenticated")({
 const NAV = [
   { to: "/", label: "Documents", icon: LayoutGrid },
   { to: "/upload", label: "Upload", icon: Upload },
-  { to: "/trends", label: "Trends", icon: LineChart },
   { to: "/profile", label: "Profile", icon: UserRound },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
 function AuthenticatedLayout() {
   const navigate = useNavigate();
+  const { user } = Route.useRouteContext();
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -42,6 +42,7 @@ function AuthenticatedLayout() {
 
   return (
     <div className="min-h-screen bg-background">
+      {user?.id && <OnboardingModal userId={user.id} />}
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
@@ -80,7 +81,7 @@ function AuthenticatedLayout() {
 
       {/* Bottom nav (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur sm:hidden">
-        <div className="mx-auto grid max-w-5xl grid-cols-5">
+        <div className="mx-auto grid max-w-5xl grid-cols-4">
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}

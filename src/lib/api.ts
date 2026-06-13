@@ -151,10 +151,66 @@ export interface Insight {
   created_at?: string;
 }
 
+export interface ScoreBreakdownItem {
+  label: string;
+  value: number;
+  max: number;
+}
+
 export interface ScoreResponse {
   score: number;
   summary?: string;
   factors?: { label: string; impact?: string; detail?: string }[];
+  /** Component scores keyed by component name, or an array of {label,value,max}. */
+  breakdown?: Record<string, unknown> | ScoreBreakdownItem[] | null;
+}
+
+/** Fixed Health Profile components with their maximum points. */
+export const SCORE_COMPONENTS: { key: string; label: string; max: number; aliases: string[] }[] = [
+  { key: "documents", label: "Documents", max: 30, aliases: ["documents", "docs", "document"] },
+  { key: "biomarkers", label: "Biomarkers", max: 20, aliases: ["biomarkers", "biomarker", "markers"] },
+  { key: "profile", label: "Profile", max: 20, aliases: ["profile", "profile_completeness"] },
+  { key: "recency", label: "Recency", max: 20, aliases: ["recency", "recent", "freshness"] },
+  { key: "followups", label: "Follow-ups", max: 10, aliases: ["followups", "follow_ups", "follow_up", "followup", "follow-ups"] },
+];
+
+/** Normalize a score response's breakdown into the five fixed buckets. */
+export function normalizeScoreBreakdown(
+  breakdown: ScoreResponse["breakdown"],
+): ScoreBreakdownItem[] {
+  const lookup = new Map<string, number>();
+
+  if (Array.isArray(breakdown)) {
+    for (const item of breakdown) {
+      if (item && typeof item === "object" && "label" in item) {
+        const label = String((item as ScoreBreakdownItem).label ?? "").toLowerCase().replace(/\s+/g, "_");
+        const value = Number((item as ScoreBreakdownItem).value);
+        if (label && !Number.isNaN(value)) lookup.set(label, value);
+      }
+    }
+  } else if (breakdown && typeof breakdown === "object") {
+    for (const [rawKey, rawVal] of Object.entries(breakdown)) {
+      const key = rawKey.toLowerCase().replace(/\s+/g, "_");
+      const value =
+        typeof rawVal === "number"
+          ? rawVal
+          : typeof rawVal === "object" && rawVal != null && "value" in (rawVal as Record<string, unknown>)
+            ? Number((rawVal as Record<string, unknown>).value)
+            : Number(rawVal);
+      if (!Number.isNaN(value)) lookup.set(key, value);
+    }
+  }
+
+  return SCORE_COMPONENTS.map(({ label, max, aliases }) => {
+    let value = 0;
+    for (const alias of aliases) {
+      if (lookup.has(alias)) {
+        value = lookup.get(alias)!;
+        break;
+      }
+    }
+    return { label, max, value: Math.max(0, Math.min(max, Math.round(value))) };
+  });
 }
 
 export interface Profile {

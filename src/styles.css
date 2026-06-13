@@ -39,6 +39,10 @@
   --color-routine: var(--routine);
   --color-routine-foreground: var(--routine-foreground);
 
+  --color-teal: var(--teal);
+  --color-teal-foreground: var(--teal-foreground);
+  --color-ring-track: var(--ring-track);
+
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -90,6 +94,11 @@
   --border: oklch(0.91 0.012 245);
   --input: oklch(0.91 0.012 245);
   --ring: oklch(0.62 0.13 245);
+
+  /* Completeness meter: grey track -> teal fill (never a health verdict) */
+  --teal: oklch(0.72 0.11 190);
+  --teal-foreground: oklch(0.99 0.005 240);
+  --ring-track: oklch(0.92 0.008 240);
 
   /* Urgency colors */
   --urgent: oklch(0.62 0.21 25);

@@ -7,19 +7,16 @@ interface ScoreRingProps {
   className?: string;
 }
 
-/** Color the ring by health-score band: low = urgent, mid = soon, high = routine. */
-function ringColor(score: number) {
-  if (score >= 75) return "var(--color-routine)";
-  if (score >= 50) return "var(--color-soon)";
-  return "var(--color-urgent)";
-}
-
-export function ScoreRing({ score, size = 132, stroke = 12, className }: ScoreRingProps) {
+/**
+ * Completeness meter for the Health Profile.
+ * Always grey track -> teal fill. Never red/amber/green — this is a
+ * completeness score, not a health verdict.
+ */
+export function ScoreRing({ score, size = 148, stroke = 13, className }: ScoreRingProps) {
   const clamped = Math.max(0, Math.min(100, Math.round(score)));
   const radius = (size - stroke) / 2;
   const circ = 2 * Math.PI * radius;
   const offset = circ - (clamped / 100) * circ;
-  const color = ringColor(clamped);
 
   return (
     <div
@@ -32,7 +29,7 @@ export function ScoreRing({ score, size = 132, stroke = 12, className }: ScoreRi
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="var(--color-muted)"
+          stroke="var(--color-ring-track)"
           strokeWidth={stroke}
         />
         <circle
@@ -40,7 +37,7 @@ export function ScoreRing({ score, size = 132, stroke = 12, className }: ScoreRi
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={color}
+          stroke="var(--color-teal)"
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circ}
@@ -49,7 +46,7 @@ export function ScoreRing({ score, size = 132, stroke = 12, className }: ScoreRi
         />
       </svg>
       <div className="absolute flex flex-col items-center">
-        <span className="text-3xl font-bold tracking-tight text-foreground">{clamped}</span>
+        <span className="text-4xl font-bold tracking-tight text-foreground">{clamped}</span>
         <span className="text-xs font-medium text-muted-foreground">/ 100</span>
       </div>
     </div>

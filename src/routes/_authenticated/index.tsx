@@ -12,10 +12,14 @@ import {
   Lightbulb,
   X,
   Loader2,
-  TrendingUp,
-  TrendingDown,
 } from "lucide-react";
-import { apiClient, ApiError, type MedicalDocument, type Insight } from "@/lib/api";
+import {
+  apiClient,
+  ApiError,
+  normalizeScoreBreakdown,
+  type MedicalDocument,
+  type Insight,
+} from "@/lib/api";
 import { UrgencyBadge } from "@/components/urgency-badge";
 import { ScoreRing } from "@/components/score-ring";
 import { Disclaimer } from "@/components/disclaimer";
@@ -41,6 +45,7 @@ function Dashboard() {
   });
 
   const documents = Array.isArray(data) ? data : [];
+  const hasDocuments = documents.length > 0;
 
   return (
     <div className="space-y-6">
@@ -59,7 +64,7 @@ function Dashboard() {
         </Button>
       </div>
 
-      <ScoreCard />
+      <HealthProfileCard hasDocuments={hasDocuments} docsLoading={isLoading} />
 
       <InsightsSection />
 
@@ -126,57 +131,93 @@ function Dashboard() {
   );
 }
 
-function ScoreCard() {
-  const { data, isLoading, isError, refetch } = useQuery({
+function HealthProfileCard({
+  hasDocuments,
+  docsLoading,
+}: {
+  hasDocuments: boolean;
+  docsLoading: boolean;
+}) {
+  const { data, isLoading } = useQuery({
     queryKey: ["score"],
     queryFn: () => apiClient.getScore(),
   });
 
-  return (
-    <Card className="p-6">
-      <h2 className="text-base font-semibold text-foreground">Health score</h2>
-      {isLoading ? (
-        <div className="mt-4 flex items-center gap-6">
-          <Skeleton className="h-32 w-32 rounded-full" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-1/2" />
-          </div>
-        </div>
-      ) : isError || !data ? (
-        <div className="mt-4 flex flex-col items-start gap-3">
-          <p className="text-sm text-muted-foreground">
-            Your health score isn’t available yet. Add documents and complete your profile to
-            generate one.
+  // Empty state: no documents yet -> grey ring at 0 + upload CTA.
+  if (!docsLoading && !hasDocuments) {
+    return (
+      <Card className="flex flex-col items-center gap-5 p-8 text-center sm:flex-row sm:text-left">
+        <ScoreRing score={0} />
+        <div className="flex-1 space-y-3">
+          <h2 className="text-base font-semibold text-foreground">Health Profile</h2>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Upload your first document to start building your health profile.
           </p>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            Refresh
+          <Button asChild>
+            <Link to="/upload">
+              <Plus className="h-4 w-4" />
+              Upload your first document
+            </Link>
           </Button>
         </div>
-      ) : (
-        <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-center">
-          <ScoreRing score={data.score} />
+      </Card>
+    );
+  }
+
+  if (isLoading || docsLoading) {
+    return (
+      <Card className="p-6">
+        <h2 className="text-base font-semibold text-foreground">Health Profile</h2>
+        <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row">
+          <Skeleton className="h-36 w-36 rounded-full" />
           <div className="flex-1 space-y-3">
-            {data.summary && (
-              <p className="text-sm leading-relaxed text-foreground/90">{data.summary}</p>
-            )}
-            {data.factors && data.factors.length > 0 && (
-              <ul className="space-y-1.5">
-                {data.factors.map((f, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                    <span>
-                      <span className="font-medium text-foreground">{f.label}</span>
-                      {f.detail ? ` — ${f.detail}` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-4 w-full" />
+            ))}
           </div>
         </div>
-      )}
+      </Card>
+    );
+  }
+
+  const score = data?.score ?? 0;
+  const bars = normalizeScoreBreakdown(data?.breakdown);
+
+  return (
+    <Card className="p-6">
+      <h2 className="text-base font-semibold text-foreground">Health Profile</h2>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        A completeness meter — how much of your health picture you've added so far.
+      </p>
+      <div className="mt-5 flex flex-col items-center gap-7 sm:flex-row sm:items-center">
+        <ScoreRing score={score} />
+        <div className="flex-1 space-y-3 self-stretch">
+          {bars.map((bar) => (
+            <ComponentBar key={bar.label} label={bar.label} value={bar.value} max={bar.max} />
+          ))}
+        </div>
+      </div>
     </Card>
+  );
+}
+
+function ComponentBar({ label, value, max }: { label: string; value: number; max: number }) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-foreground">{label}</span>
+        <span className="tabular-nums text-muted-foreground">
+          {value}/{max}
+        </span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-ring-track">
+        <div
+          className="h-full rounded-full bg-teal transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -218,25 +259,61 @@ function InsightsSection() {
     );
   }
 
-  if (isError || insights.length === 0) return null;
-
   return (
     <div className="space-y-3">
       <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
         <Lightbulb className="h-5 w-5 text-accent" />
         Insights
       </h2>
-      <div className="grid gap-3">
-        {insights.map((insight, i) => (
-          <InsightCard
-            key={`${insight.biomarker}-${i}`}
-            insight={insight}
-            onDismiss={() => dismiss.mutate(insight)}
-            dismissing={dismiss.isPending}
-          />
-        ))}
-      </div>
+      {isError || insights.length === 0 ? (
+        <Card className="p-6 text-sm text-muted-foreground">
+          Upload 3+ documents with the same biomarker to see trends.
+        </Card>
+      ) : (
+        <div className="grid gap-3">
+          {insights.map((insight, i) => (
+            <InsightCard
+              key={`${insight.biomarker}-${i}`}
+              insight={insight}
+              onDismiss={() => dismiss.mutate(insight)}
+              dismissing={dismiss.isPending}
+            />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+type Severity = "info" | "watch" | "urgent";
+
+function normalizeSeverity(severity?: string): Severity {
+  const s = (severity ?? "").toLowerCase();
+  if (s === "urgent" || s === "high" || s === "critical") return "urgent";
+  if (s === "watch" || s === "medium" || s === "soon" || s === "warn") return "watch";
+  return "info";
+}
+
+function SeverityBadge({ severity }: { severity: Severity }) {
+  const styles: Record<Severity, string> = {
+    info: "bg-accent/15 text-accent",
+    watch: "bg-soon/20 text-soon-foreground",
+    urgent: "bg-urgent/15 text-urgent",
+  };
+  const labels: Record<Severity, string> = {
+    info: "Info",
+    watch: "Watch",
+    urgent: "Urgent",
+  };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+        styles[severity],
+      )}
+    >
+      {labels[severity]}
+    </span>
   );
 }
 
@@ -249,30 +326,19 @@ function InsightCard({
   onDismiss: () => void;
   dismissing: boolean;
 }) {
-  const dir = (insight.direction ?? "").toLowerCase();
-  const severity = (insight.severity ?? "").toLowerCase();
+  const severity = normalizeSeverity(insight.severity);
   const accentBar =
-    severity === "high" || severity === "urgent"
-      ? "bg-urgent"
-      : severity === "medium" || severity === "soon"
-        ? "bg-soon"
-        : "bg-accent";
+    severity === "urgent" ? "bg-urgent" : severity === "watch" ? "bg-soon" : "bg-accent";
 
   return (
     <Card className="relative flex gap-3 overflow-hidden p-4 pr-10">
       <span className={cn("absolute inset-y-0 left-0 w-1", accentBar)} />
-      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-accent">
-        {dir.includes("high") || dir.includes("up") ? (
-          <TrendingUp className="h-4 w-4" />
-        ) : dir.includes("low") || dir.includes("down") ? (
-          <TrendingDown className="h-4 w-4" />
-        ) : (
-          <Lightbulb className="h-4 w-4" />
-        )}
-      </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-foreground">{insight.biomarker}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground">{insight.message}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold text-foreground">{insight.biomarker}</p>
+          <SeverityBadge severity={severity} />
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{insight.message}</p>
         {(insight.value != null || insight.reference_range) && (
           <p className="mt-1 text-xs text-muted-foreground">
             {insight.value != null && (
