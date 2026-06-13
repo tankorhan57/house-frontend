@@ -42,11 +42,14 @@ function formatSize(bytes: number) {
 
 function UploadPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const previewUrlsRef = useRef<Set<string>>(new Set());
+  const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
+  const [longProcessing, setLongProcessing] = useState(false);
 
   useEffect(() => {
     const urls = previewUrlsRef.current;
