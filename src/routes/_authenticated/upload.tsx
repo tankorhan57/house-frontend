@@ -93,8 +93,11 @@ function UploadPage() {
       if (!pending.length) return current;
       (async () => {
         setRunning(true);
+        setLongProcessing(false);
         let anyError = false;
+        let lastDocumentId: string | null = null;
         const snap = current.filter((e) => e.status === "pending" || e.status === "error");
+        const single = snap.length === 1;
         for (const entry of snap) {
           try {
             setEntries((p) =>
@@ -115,14 +118,28 @@ function UploadPage() {
             setEntries((p) =>
               p.map((e) => (e.id === entry.id ? { ...e, status: "processing", progress: 100 } : e)),
             );
+            // After 30s of processing, switch to the "still analyzing" message.
+            if (longTimerRef.current) clearTimeout(longTimerRef.current);
+            longTimerRef.current = setTimeout(() => setLongProcessing(true), 30_000);
             await apiClient.process({
               documentId: presign.documentId,
               key: presign.key,
               fileName: entry.file.name,
             });
+            if (longTimerRef.current) {
+              clearTimeout(longTimerRef.current);
+              longTimerRef.current = null;
+            }
+            setLongProcessing(false);
+            lastDocumentId = presign.documentId;
             setEntries((p) => p.map((e) => (e.id === entry.id ? { ...e, status: "done" } : e)));
           } catch (err) {
             anyError = true;
+            if (longTimerRef.current) {
+              clearTimeout(longTimerRef.current);
+              longTimerRef.current = null;
+            }
+            setLongProcessing(false);
             const msg = err instanceof ApiError ? err.message : "Upload failed. Please try again.";
             setEntries((p) =>
               p.map((e) => (e.id === entry.id ? { ...e, status: "error", error: msg } : e)),
@@ -132,8 +149,13 @@ function UploadPage() {
         }
         await queryClient.invalidateQueries({ queryKey: ["documents"] });
         setRunning(false);
-        if (!anyError)
-          toast.success(snap.length === 1 ? "Document ready." : `${snap.length} documents ready.`);
+        if (!anyError) {
+          toast.success(single ? "Document ready." : `${snap.length} documents ready.`);
+          // Single-file happy path: jump straight to the new document.
+          if (single && lastDocumentId) {
+            navigate({ to: "/document/$id", params: { id: lastDocumentId } });
+          }
+        }
       })();
       return current;
     });
@@ -141,6 +163,7 @@ function UploadPage() {
 
   const pendingCount = entries.filter((e) => e.status === "pending" || e.status === "error").length;
   const allDone = entries.length > 0 && entries.every((e) => e.status === "done");
+  const anyProcessing = entries.some((e) => e.status === "processing");
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
