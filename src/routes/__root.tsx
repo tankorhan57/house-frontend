@@ -93,9 +93,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "House — Your Personal Medical Document Vault" },
-      { name: "description", content: "My Health House is a HIPAA-compliant personal medical document vault for organizing and understanding health records." },
-      { property: "og:description", content: "My Health House is a HIPAA-compliant personal medical document vault for organizing and understanding health records." },
-      { name: "twitter:description", content: "My Health House is a HIPAA-compliant personal medical document vault for organizing and understanding health records." },
+      {
+        name: "twitter:description",
+        content: "Securely store and understand your medical documents in plain language.",
+      },
       { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3dde8a3a-addb-4b56-9e43-e31233d035e4/id-preview-befc1b16--f96c33ce-ca56-47e6-b0fe-c4071adf4b41.lovable.app-1780492606290.png" },
       { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3dde8a3a-addb-4b56-9e43-e31233d035e4/id-preview-befc1b16--f96c33ce-ca56-47e6-b0fe-c4071adf4b41.lovable.app-1780492606290.png" },
     ],
