@@ -80,7 +80,7 @@ function AuthenticatedLayout() {
 
       {/* Bottom nav (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur sm:hidden">
-        <div class="" className="mx-auto grid max-w-5xl grid-cols-5">
+        <div className="mx-auto grid max-w-5xl grid-cols-5">
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
