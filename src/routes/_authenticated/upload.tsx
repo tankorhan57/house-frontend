@@ -114,7 +114,8 @@ function UploadPage() {
             );
             await apiClient.process({
               documentId: presign.documentId,
-              s3Key: presign.s3Key,
+              key: presign.key,
+              fileName: entry.file.name,
             });
             setEntries((p) => p.map((e) => (e.id === entry.id ? { ...e, status: "done" } : e)));
           } catch (err) {
