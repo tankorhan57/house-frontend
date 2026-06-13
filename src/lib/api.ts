@@ -234,11 +234,26 @@ export const apiClient = {
     api<void>(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   /* Upload + processing */
-  presign: (payload: { fileName: string; fileType: string; fileSize: number }) =>
-    api<PresignResponse>("/presign", { method: "POST", body: payload }),
+  presign: async (payload: { fileName: string; fileType: string; fileSize: number }) => {
+    const raw = await api<Record<string, unknown>>("/presign", { method: "POST", body: payload });
+    // Log the raw response so the upload flow can be verified end-to-end.
+    console.info("[presign] response:", raw);
+    const uploadUrl = (raw?.uploadUrl ?? raw?.url ?? raw?.signedUrl) as string | undefined;
+    const documentId = (raw?.documentId ?? raw?.document_id ?? raw?.id) as string | undefined;
+    const key = (raw?.key ?? raw?.s3Key ?? raw?.objectKey) as string | undefined;
+    if (!uploadUrl || !documentId || !key) {
+      throw new ApiError(
+        `Presign response is missing required fields. Received: ${JSON.stringify(raw)}`,
+        0,
+      );
+    }
+    return { uploadUrl, documentId, key } satisfies PresignResponse;
+  },
 
-  process: (payload: { documentId: string; key: string; fileName: string }) =>
-    api<ProcessResponse>("/process", { method: "POST", body: payload, timeoutMs: 120_000 }),
+  process: (payload: { documentId: string; key: string; fileName: string }) => {
+    console.info("[process] request:", payload);
+    return api<ProcessResponse>("/process", { method: "POST", body: payload, timeoutMs: 120_000 });
+  },
 
   /* Insights */
   getInsights: () => api<Insight[]>("/insights"),
