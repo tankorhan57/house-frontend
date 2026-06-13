@@ -1,5 +1,13 @@
 import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/react-router";
-import { LayoutGrid, Upload, LineChart, Settings, House as HouseIcon, LogOut } from "lucide-react";
+import {
+  LayoutGrid,
+  Upload,
+  LineChart,
+  Settings,
+  UserRound,
+  House as HouseIcon,
+  LogOut,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,6 +28,7 @@ const NAV = [
   { to: "/", label: "Documents", icon: LayoutGrid },
   { to: "/upload", label: "Upload", icon: Upload },
   { to: "/trends", label: "Trends", icon: LineChart },
+  { to: "/profile", label: "Profile", icon: UserRound },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -71,7 +80,7 @@ function AuthenticatedLayout() {
 
       {/* Bottom nav (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur sm:hidden">
-        <div className="mx-auto grid max-w-5xl grid-cols-4">
+        <div className="mx-auto grid max-w-5xl grid-cols-5">
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
