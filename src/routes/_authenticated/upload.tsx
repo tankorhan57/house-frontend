@@ -56,6 +56,7 @@ function UploadPage() {
     return () => {
       urls.forEach(URL.revokeObjectURL);
       urls.clear();
+      if (longTimerRef.current) clearTimeout(longTimerRef.current);
     };
   }, []);
 
@@ -296,6 +297,18 @@ function UploadPage() {
             </ul>
           </div>
         )}
+
+        {anyProcessing && (
+          <div className="mt-4 flex items-center gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3">
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-accent" />
+            <p className="text-sm font-medium text-foreground">
+              {longProcessing
+                ? "Still analyzing — this can take up to a minute for complex documents."
+                : "Analyzing your document…"}
+            </p>
+          </div>
+        )}
+
 
         <div className="mt-4 flex gap-2">
           <Button
